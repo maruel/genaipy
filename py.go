@@ -121,8 +121,6 @@ func NewServer(ctx context.Context, script, cacheDir, logName string, extraArgs 
 			_, err := cp.GenSync(ctx, genai.Messages{genai.NewTextMessage(genai.User, "Say hello. Use only one word.")}, nil)
 			if err == nil {
 				return s, nil
-			} else {
-				fmt.Fprintf(os.Stderr, "Err: %v\n", err)
 			}
 		}
 	}
