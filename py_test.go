@@ -5,14 +5,10 @@
 package genaipy
 
 import (
-	"context"
 	"errors"
-	"log"
-	"net"
 	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -28,20 +24,18 @@ func TestNewServer(t *testing.T) {
 		t.Skip("skipping test in CI environment")
 	}
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 	// To run from scratch every time, but it's a bit slow:
 	// cache := t.TempDir()
-	cache, err := filepath.Abs("../cache/py")
+	cache, err := filepath.Abs("cache")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err = os.MkdirAll(cache, 0o755); err != nil {
 		t.Fatal(err)
 	}
-
-	port := strconv.Itoa(findFreePort())
 	// This is a very slow test.
-	srv, err := NewServer(ctx, "llm.py", cache, filepath.Join(cache, "py_llm.py"), []string{"--port", port})
+	srv, err := NewServer(ctx, "llm.py", cache, filepath.Join(cache, "py_llm.py"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +45,7 @@ func TestNewServer(t *testing.T) {
 		}
 	})
 
-	client, err := openaicompatible.New("http://localhost:"+port+"/v1/chat/completions", nil, "", nil)
+	client, err := openaicompatible.New(&genai.OptionsProvider{Remote: srv.URL + "/v1/chat/completions"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,13 +80,4 @@ func TestNewServer(t *testing.T) {
 		return
 	}
 	t.Fatal("too many retries")
-}
-
-func findFreePort() int {
-	l, err := net.Listen("tcp", "localhost:0")
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer l.Close()
-	return l.Addr().(*net.TCPAddr).Port
 }

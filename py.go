@@ -12,15 +12,22 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
+	"time"
+
+	"github.com/maruel/genai"
+	"github.com/maruel/genai/providers/openaicompatible"
 )
 
 type Server struct {
+	URL  string
 	cmd  *exec.Cmd
 	done <-chan error
 }
@@ -42,6 +49,15 @@ func NewServer(ctx context.Context, script, cacheDir, logName string, extraArgs 
 		}
 	}
 
+	l, err := net.Listen("tcp", "localhost:0")
+	if err != nil {
+		return nil, err
+	}
+	port := strconv.Itoa(l.Addr().(*net.TCPAddr).Port)
+	if err = l.Close(); err != nil {
+		return nil, err
+	}
+
 	venv := filepath.Join(cacheDir, "venv")
 	bin := "bin"
 	pythonexe := "python3"
@@ -51,7 +67,7 @@ func NewServer(ctx context.Context, script, cacheDir, logName string, extraArgs 
 		pythonexe = "python.exe"
 	}
 	rel := filepath.Join(venv, bin, pythonexe)
-	args := append([]string{script}, extraArgs...)
+	args := append([]string{script, "--port", port}, extraArgs...)
 	log, err := os.OpenFile(logName, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create log file: %w", err)
@@ -88,7 +104,28 @@ func NewServer(ctx context.Context, script, cacheDir, logName string, extraArgs 
 		close(done)
 	}()
 	slog.Info("py", "state", "started", "pid", cmd.Process.Pid)
-	return &Server{done: done, cmd: cmd}, nil
+	s := &Server{URL: "http://localhost:" + port, done: done, cmd: cmd}
+	// Loop until it's able to connect.
+	cp, err := openaicompatible.New(&genai.OptionsProvider{Remote: s.URL + "/v1/chat/completions"}, nil)
+	if err != nil {
+		return nil, err
+	}
+	for {
+		select {
+		case err = <-done:
+			if err == nil {
+				err = errors.New("process exited early; look at logs to diagnose")
+			}
+			return nil, err
+		case <-time.After(100 * time.Millisecond):
+			_, err := cp.GenSync(ctx, genai.Messages{genai.NewTextMessage(genai.User, "Say hello. Use only one word.")}, nil)
+			if err == nil {
+				return s, nil
+			} else {
+				fmt.Fprintf(os.Stderr, "Err: %v\n", err)
+			}
+		}
+	}
 }
 
 func (s *Server) Close() error {
