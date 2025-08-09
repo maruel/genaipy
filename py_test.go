@@ -52,7 +52,7 @@ func TestNewServer(t *testing.T) {
 	start := time.Now()
 	for {
 		resp, err := client.GenSync(ctx, genai.Messages{
-			genai.NewTextMessage(genai.User, "Say hello. Reply with only one word."),
+			genai.NewTextMessage("Say hello. Reply with only one word."),
 		}, nil)
 		var v *url.Error
 		var h *httpjson.Error

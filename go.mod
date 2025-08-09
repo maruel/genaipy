@@ -3,7 +3,7 @@ module github.com/maruel/genaipy
 go 1.24.4
 
 require (
-	github.com/maruel/genai v0.0.0-20250808191819-419a4becbad4
+	github.com/maruel/genai v0.0.0-20250809145906-adb79c043139
 	github.com/maruel/httpjson v0.5.0
 )
 
