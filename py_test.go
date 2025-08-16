@@ -71,7 +71,7 @@ func TestNewServer(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		txt := strings.TrimSpace(resp.Contents[0].Text)
+		txt := strings.TrimSpace(resp.AsText())
 		txt = strings.TrimRight(txt, ".!")
 		txt = strings.ToLower(txt)
 		if txt != "hello" {
