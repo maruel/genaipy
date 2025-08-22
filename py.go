@@ -106,7 +106,7 @@ func NewServer(ctx context.Context, script, cacheDir, logName string, extraArgs 
 	slog.Info("py", "state", "started", "pid", cmd.Process.Pid)
 	s := &Server{URL: "http://localhost:" + port, done: done, cmd: cmd}
 	// Loop until it's able to connect.
-	cp, err := openaicompatible.New(&genai.ProviderOptions{Remote: s.URL + "/v1/chat/completions"}, nil)
+	cp, err := openaicompatible.New(ctx, &genai.ProviderOptions{Remote: s.URL + "/v1/chat/completions"}, nil)
 	if err != nil {
 		return nil, err
 	}
