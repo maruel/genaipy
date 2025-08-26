@@ -51,9 +51,7 @@ func TestNewServer(t *testing.T) {
 	}
 	start := time.Now()
 	for {
-		resp, err := client.GenSync(ctx, genai.Messages{
-			genai.NewTextMessage("Say hello. Reply with only one word."),
-		}, nil)
+		res, err := client.GenSync(ctx, genai.Messages{genai.NewTextMessage("Say hello. Reply with only one word.")})
 		var v *url.Error
 		var h *httpjson.Error
 		if errors.As(err, &v) || errors.As(err, &h) {
@@ -71,7 +69,7 @@ func TestNewServer(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		txt := strings.TrimSpace(resp.String())
+		txt := strings.TrimSpace(res.String())
 		txt = strings.TrimRight(txt, ".!")
 		txt = strings.ToLower(txt)
 		if txt != "hello" {
