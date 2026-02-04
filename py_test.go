@@ -45,7 +45,7 @@ func TestNewServer(t *testing.T) {
 		}
 	})
 
-	client, err := openaicompatible.New(ctx, &genai.ProviderOptions{Remote: srv.URL + "/v1/chat/completions"}, nil)
+	client, err := openaicompatible.New(ctx, genai.ProviderOptionRemote(srv.URL+"/v1/chat/completions"))
 	if err != nil {
 		t.Fatal(err)
 	}
