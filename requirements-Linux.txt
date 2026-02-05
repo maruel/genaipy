@@ -37,7 +37,7 @@ regex==2025.7.34
 requests==2.32.4
 safetensors==0.5.3
 segmoe==0.0.4
-sentencepiece==0.2.0
+sentencepiece==0.2.1
 sympy==1.14.0
 tokenizers==0.21.4
 torch==2.7.1
