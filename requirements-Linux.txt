@@ -29,7 +29,7 @@ nvidia-nvjitlink-cu12==12.6.85
 nvidia-nvtx-cu12==12.6.77
 packaging==25.0
 peft==0.17.0
-pillow==11.3.0
+pillow==12.1.1
 protobuf==6.31.1
 psutil==7.0.0
 PyYAML==6.0.2
