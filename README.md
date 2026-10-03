@@ -94,3 +94,16 @@ A working model requires sufficient memory and appropriate accelerator packages.
 `llm.py --model MODEL_ID` selects a Hugging Face text model. The default Llama
 model requires Hugging Face authentication; an ungated model such as
 `HuggingFaceTB/SmolLM2-135M-Instruct` is suitable for a small CPU smoke test.
+
+`whistle.New(ctx, model)` runs optional Cactus Whistle ASR through a persistent
+Python worker. It implements `speech.Recognizer` for 16 kHz mono S16LE PCM;
+`model` is an optional local `.cact` weights path. It requires `uv` and installs
+`cactus-needle==3.1.0`. Needle fetches a **prebuilt native engine** and default
+Whistle weights on first use. Telemetry is disabled. Close the runtime when
+finished. Long clips use consecutive 30-second windows, with possible loss of
+accuracy on words crossing window boundaries; transcripts are returned after
+completion rather than streamed.
+
+Offline tests cover the worker without installing Needle. To validate a real
+speech clip, explicitly opt in with
+`GENAIPY_WHISTLE_SMOKE_PCM=/path/to/16k-mono-s16le.pcm go test -run TestWhistleSmoke -v ./whistle`.
