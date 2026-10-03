@@ -75,6 +75,52 @@ class ServerTests(unittest.TestCase):
             with self.request(root + "/api/quit", b"{}") as response:
                 self.assertEqual(json.load(response), {"quitting": True})
 
+    def test_shutdown_response(self):
+        for name in ("image_gen", "llm"):
+            for body in (b"", b"{}"):
+                with self.subTest(module=name, body=body):
+                    root = self.start(load_runtime(name))
+                    with self.request(root + "/api/quit", body) as response:
+                        self.assertEqual(response.status, 200)
+                        self.assertEqual(json.load(response), {"quitting": True})
+
+    def test_shutdown_consumes_body_before_reply(self):
+        for name in ("image_gen", "llm"):
+            for body in (b"", b"{}"):
+                with self.subTest(module=name, body=body):
+                    module = load_runtime(name)
+                    handler = module.Handler.__new__(module.Handler)
+                    handler.headers = {"Content-Length": str(len(body))}
+                    handler.rfile = io.BytesIO(body)
+                    handler.server = mock.Mock()
+
+                    def check_reply(data, status=200, handler=handler, body=body):
+                        self.assertEqual(handler.rfile.tell(), len(body))
+                        self.assertEqual(data, {"quitting": True})
+                        self.assertEqual(status, 200)
+
+                    handler.reply_json = mock.Mock(side_effect=check_reply)
+                    with mock.patch.object(module.threading, "Thread") as thread:
+                        handler.on_quit()
+                    handler.reply_json.assert_called_once()
+                    thread.assert_called_once_with(target=handler.server.shutdown, daemon=True)
+                    thread.return_value.start.assert_called_once()
+
+    def test_shutdown_rejects_invalid_body_lengths(self):
+        for name in ("image_gen", "llm"):
+            for length in ("-1", "invalid", "1048577"):
+                with self.subTest(module=name, length=length):
+                    module = load_runtime(name)
+                    handler = module.Handler.__new__(module.Handler)
+                    handler.headers = {"Content-Length": length}
+                    handler.rfile = mock.Mock()
+                    handler.reply_json = mock.Mock()
+                    with mock.patch.object(module.threading, "Thread") as thread:
+                        handler.on_quit()
+                    self.assertEqual(handler.reply_json.call_args.kwargs["status"], 400)
+                    handler.rfile.read.assert_not_called()
+                    thread.assert_not_called()
+
     def test_llm_rejects_invalid_requests_and_recovers(self):
         module = load_runtime("llm")
         pipeline = mock.Mock(return_value=[{"generated_text": "Hello"}])

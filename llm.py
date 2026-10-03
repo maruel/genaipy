@@ -166,6 +166,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.reply_json({"status": "ok", "pid": os.getpid()})
 
     def on_quit(self):
+        try:
+            content_length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            self.reply_json({"error": {"message": "invalid Content-Length"}}, status=400)
+            return
+        if not 0 <= content_length <= 1048576:
+            self.reply_json({"error": {"message": "request body must be at most 1 MiB"}}, status=400)
+            return
+        # Closing a socket with unread request data can reset the response on macOS.
+        self.rfile.read(content_length)
         self.reply_json({"quitting": True})
         threading.Thread(target=self.server.shutdown, daemon=True).start()
 
