@@ -2,7 +2,7 @@ module github.com/maruel/genaipy
 
 go 1.27.1
 
-require github.com/maruel/genai v0.8.2-0.20261003191951-ce29d0a57a60
+require github.com/maruel/genai v0.9.0
 
 require (
 	github.com/andybalholm/brotli v1.2.6 // indirect
