@@ -65,11 +65,24 @@ class WorkerTest(unittest.TestCase):
         self.assertEqual(list(audio), [-0.5, 0, 32767 / 32768])
 
     def test_invalid_pcm_does_not_reach_model(self):
-        for pcm in (b"", b"x", b"\0" * (960000 + 2)):
+        for pcm in (b"", b"x"):
             with self.subTest(size=len(pcm)):
                 self.assertEqual(self.request(pcm)[0], 400)
         self.assertEqual(self.model.calls, [])
         self.assertEqual(self.request(b"\0\0", "/other")[0], 404)
+
+    def test_oversized_pcm_is_rejected_before_reading_body(self):
+        conn = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=5)
+        self.addCleanup(conn.close)
+        conn.putrequest("POST", "/transcribe")
+        conn.putheader("Content-Length", "960002")
+        # Uploading a rejected body races the server's connection close on macOS.
+        conn.endheaders()
+        resp = conn.getresponse()
+        self.assertEqual(resp.status, 400)
+        self.assertIn("at most 30 seconds", json.loads(resp.read())["error"])
+        self.assertEqual(self.model.calls, [])
+        self.assertEqual(self.request(b"\0\0")[0], 200)
 
     def test_native_failure_leaves_worker_usable(self):
         status, data = self.request(struct.pack("<h", -32768))
