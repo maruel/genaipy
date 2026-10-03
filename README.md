@@ -51,6 +51,33 @@ python llm.py --host 0.0.0.0 --port 8031
 ```
 
 
+## Speech
+
+The `speech` package provides reusable recognition through a genai provider,
+OpenAI-compatible transcription endpoints, or whisper.cpp. `Transcribe` accepts
+signed 16-bit little-endian mono PCM and an explicit input sample rate. The
+provider recognizer strips Qwen ASR language metadata; callers retain ownership
+of the underlying provider.
+
+`speech.NewHTTPSynthesizer` configures an OpenAI-compatible model and voice.
+It streams raw mono S16LE PCM at 24 kHz; the configured server must produce that
+format. Its required HTTP client can supply authentication through a transport.
+
+`kittentts.New(ctx, kittentts.Config{})` starts a managed KittenTTS worker through
+`uv` using Python 3.12. It pins the `kittenml` package and uses KittenTTS 2's
+streaming API. The default model is `KittenML/kitten-tts-2`, voice Jasper.
+`Config.Model`, `Config.Voice`, and `Config.CacheDir` configure it.
+The worker runs on CPU and yields complete sentence chunks as 24 kHz PCM.
+The default model cache is under the user's `genaipy/kittentts`
+cache directory. Startup installs the pinned package and downloads uncached
+models; no model installation occurs in default tests.
+
+Call `Synthesize` to iterate over owned 24 kHz mono S16LE PCM chunks, and `Close`
+when finished. Cancelling a synthesis request leaves the worker available;
+the constructor context owns its lifetime. The worker closes its process when
+its stdin lifeline closes and reports inference failures as HTTP errors or
+truncated streams.
+
 ## Development
 
 Run `make fix`, `make verify`, `make build`, `go vet ./...`, `make test`, and

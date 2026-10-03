@@ -78,6 +78,12 @@ linters:
   exclusions:
     generated: lax
     rules:
+      # The worker's process lifetime belongs to the constructor, independent
+      # of synthesis request contexts. contextcheck cannot track stored contexts.
+      - path: kittentts/runtime\.go$
+        linters:
+          - contextcheck
+        text: Non-inherited new context|should pass the context parameter
       - path: (.+)\.go$
         text: should have a package comment
     paths:
