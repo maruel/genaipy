@@ -3,16 +3,16 @@
 # Use of this source code is governed under the Apache License, Version 2.0
 # that can be found in the LICENSE file.
 
-set -eu
-cd "$(dirname $0)"
+# Prepare the Python model environment.
+
+set -euo pipefail
+script_dir="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+readonly script_dir
+cd -- "$script_dir"
 
 if [ ! -d venv ]; then
-  python3 -m venv venv
+	python3 -m venv venv
 fi
-source venv/bin/activate
 
-pip install -U pip
-# flash_attn ?
-# See https://pytorch.org/get-started/locally/ for more information.
-pip install -U accelerate diffusers peft protobuf segmoe sentencepiece setuptools torch transformers
-pip freeze > requirements-$(uname).txt
+"$script_dir/venv/bin/python" -m pip install -U pip
+"$script_dir/venv/bin/python" -m pip install -r "$script_dir/requirements.txt"

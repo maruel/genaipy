@@ -6,11 +6,11 @@
 cd "%~dp0"
 
 if NOT EXIST venv python3 -m venv venv
+if errorlevel 1 exit /b %errorlevel%
 call venv\Scripts\activate.bat
+if errorlevel 1 exit /b %errorlevel%
 
 call python -m pip install -U pip
-:: flash_attn ?
-:: Reinstall for CUDA. See https://pytorch.org/get-started/locally/
-call pip3 install torch --index-url https://download.pytorch.org/whl/cu121
-call pip3 install -U accelerate diffusers peft protobuf sentencepiece setuptools transformers
-call pip3 freeze > requirements-Windows.txt
+if errorlevel 1 exit /b %errorlevel%
+call python -m pip install -r requirements.txt
+if errorlevel 1 exit /b %errorlevel%

@@ -1,4 +1,10 @@
-/*.png
-/cache
-/venv
-/venv-test
+*.png
+/.custom-gcl.sha
+/.ruff_cache/
+/cache/
+/custom-gcl
+/go.work
+/go.work.sum
+/venv-test/
+/venv/
+__pycache__/
