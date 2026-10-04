@@ -384,6 +384,8 @@ func kittenTTSCommand(ctx context.Context, cfg Config) (*exec.Cmd, error) {
 	}
 	cmd := exec.CommandContext(ctx, "uv", args...)
 	cmd.Dir = cache
+	// Keep model download progress out of logs without hiding warnings or errors.
+	cmd.Env = append(cmd.Environ(), "HF_HUB_DISABLE_PROGRESS_BARS=1")
 	return cmd, nil
 }
 
