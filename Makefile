@@ -35,11 +35,11 @@ fix: custom-gcl
 verify: custom-gcl
 	@./custom-gcl run --show-stats=false ./...
 	@ruff check .
-	@ruff format --check .
+	@ruff format --check --quiet .
 	@test -z "$$(shfmt -l setup.sh setup-test.sh scripts/install-git-hooks.sh scripts/hooks/pre-commit scripts/hooks/commit-msg)"
 	@shellcheck setup.sh setup-test.sh scripts/install-git-hooks.sh scripts/hooks/pre-commit scripts/hooks/commit-msg
 	@go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
-	# addlicense does not honor .gitignore; exclude model caches and Python environments.
+	@# addlicense does not honor .gitignore; exclude model caches and Python environments.
 	@go run github.com/google/addlicense@v1.2.0 -check -ignore 'cache/**' -ignore 'venv/**' -ignore 'venv-test/**' .
 	@python3 scripts/lint_binaries.py
 	@python3 scripts/update_agents_file_index.py --check
