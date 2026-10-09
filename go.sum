@@ -10,8 +10,8 @@ github.com/invopop/jsonschema v0.14.0 h1:MHQqLhvpNUZfw+hM3AZDYK7jxO8FZoQeQM77g8i
 github.com/invopop/jsonschema v0.14.0/go.mod h1:ygm6C2EaVNMBDPpaPlnOA2pFAxBnxGjFlMZABxm9n2I=
 github.com/klauspost/compress v1.20.1 h1:T7kKElXUMXrUJ2E9QhQhxFtcK5rPyLdsGZvdbLMPdiQ=
 github.com/klauspost/compress v1.20.1/go.mod h1:LUdAzn7YLVvxLpc7y3V1m40wESHTgc1422pwwBSKYuI=
-github.com/maruel/genai v0.10.0 h1:0zJJXV45q5J8BFva3F4BWMaRSt/GSHv3SRicMrt8+b0=
-github.com/maruel/genai v0.10.0/go.mod h1:SdPjQFSU81PxF8jB+kvN40X05ZO+XFGABoFWNxx3k6k=
+github.com/maruel/genai v0.10.2 h1:MjgHd0lX1UiQgKDHTER6ZeinGQQ+wSwjlQHXbOFY7aU=
+github.com/maruel/genai v0.10.2/go.mod h1:SdPjQFSU81PxF8jB+kvN40X05ZO+XFGABoFWNxx3k6k=
 github.com/maruel/httpjson v0.5.3 h1:GXxDoiaMJyax0nMR0RfefzDiKd86lbMeqPIgkoFqI2I=
 github.com/maruel/httpjson v0.5.3/go.mod h1:YJmWM63IM6ykT1NKm67b5Cuhshl1JUXuxFnmnqmr5Rg=
 github.com/maruel/roundtrippers v0.5.1 h1:ztW+4P91AV2e1ifzRnw7XG593IFn7po4Z3hdxMXzACQ=
