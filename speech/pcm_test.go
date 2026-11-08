@@ -17,6 +17,7 @@ import (
 func TestPCMChunks(t *testing.T) {
 	t.Parallel()
 	t.Run("valid", func(t *testing.T) {
+		t.Parallel()
 		t.Run("fragmented samples", func(t *testing.T) {
 			r := &fragmentReader{parts: [][]byte{{1}, {0, 2}, {0}, {3, 0}}}
 			var chunks [][]byte
@@ -32,7 +33,10 @@ func TestPCMChunks(t *testing.T) {
 		})
 		t.Run("early stop", func(t *testing.T) {
 			r := &fragmentReader{parts: [][]byte{{1, 0}, {2, 0}}}
-			for range PCMChunks(r) {
+			for _, err := range PCMChunks(r) {
+				if err != nil {
+					t.Fatal(err)
+				}
 				break
 			}
 			if len(r.parts) != 1 {
@@ -46,6 +50,7 @@ func TestPCMChunks(t *testing.T) {
 		})
 	})
 	t.Run("error", func(t *testing.T) {
+		t.Parallel()
 		t.Run("odd trailing byte", func(t *testing.T) {
 			var got error
 			var pcm []byte

@@ -1,6 +1,6 @@
 module github.com/maruel/genaipy
 
-go 1.27.1
+go 1.27.3
 
 require github.com/maruel/genai v0.10.2
 

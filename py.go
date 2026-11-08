@@ -64,11 +64,11 @@ func NewServer(ctx context.Context, script, cacheDir, logName string, extraArgs 
 			return nil, err
 		}
 	}
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+	l, err := (&net.ListenConfig{}).Listen(readyCtx, "tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, err
 	}
-	port := strconv.Itoa(l.Addr().(*net.TCPAddr).Port)
+	port := strconv.Itoa(l.Addr().(*net.TCPAddr).Port) //nolint:forcetypeassert // TCP listeners use TCP addresses.
 	if err := l.Close(); err != nil {
 		return nil, err
 	}

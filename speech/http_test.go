@@ -24,6 +24,7 @@ import (
 func TestHTTPRecognizer(t *testing.T) {
 	t.Parallel()
 	t.Run("Transcribe", func(t *testing.T) {
+		t.Parallel()
 		t.Run("limits", testHTTPRecognizerInputAndResponseLimits)
 		for _, tc := range []struct {
 			engine TranscriptionProtocol
@@ -126,6 +127,7 @@ func TestHTTPRecognizer(t *testing.T) {
 func TestHTTPSynthesizer(t *testing.T) {
 	t.Parallel()
 	t.Run("Synthesize", func(t *testing.T) {
+		t.Parallel()
 		t.Run("early stop", testHTTPSynthesizerEarlyStop)
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path != "/v1/audio/speech" {
@@ -212,7 +214,12 @@ func TestHTTPSynthesizer(t *testing.T) {
 			stream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "audio/pcm")
 				_, _ = w.Write([]byte{1, 0})
-				w.(http.Flusher).Flush()
+				if f, ok := w.(http.Flusher); ok {
+					f.Flush()
+				} else {
+					t.Error("response writer does not support flushing")
+					return
+				}
 				<-r.Context().Done()
 			}))
 			t.Cleanup(stream.Close)
@@ -258,6 +265,7 @@ func mustHTTPSynthesizer(t *testing.T, client *http.Client, remote string) *HTTP
 func TestNewHTTPRecognizer(t *testing.T) {
 	t.Parallel()
 	t.Run("error", func(t *testing.T) {
+		t.Parallel()
 		for _, tc := range []struct {
 			name, remote, model string
 			protocol            TranscriptionProtocol
@@ -283,6 +291,7 @@ func TestNewHTTPRecognizer(t *testing.T) {
 func TestNewHTTPSynthesizer(t *testing.T) {
 	t.Parallel()
 	t.Run("error", func(t *testing.T) {
+		t.Parallel()
 		for _, tc := range []struct{ remote, model, voice string }{
 			{"file:///speech", "model", "voice"},
 			{"http://localhost", "", "voice"},
@@ -301,7 +310,12 @@ func testHTTPSynthesizerEarlyStop(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "audio/pcm")
 		_, _ = w.Write([]byte{1, 0})
-		w.(http.Flusher).Flush()
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		} else {
+			t.Error("response writer does not support flushing")
+			return
+		}
 		<-r.Context().Done()
 		close(ended)
 	}))

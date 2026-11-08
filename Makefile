@@ -7,9 +7,9 @@
 .DEFAULT_GOAL := help
 .PHONY: help tools custom-gcl fix verify build test test-race smoke git-hooks
 
-GOLANGCI_VERSION := 2.14.0
-RUFF_VERSION := 0.16.8
-SHFMT_VERSION := 3.12.0
+GOLANGCI_VERSION := 2.15.0
+RUFF_VERSION := 0.17.4
+SHFMT_VERSION := 3.14.1
 export PATH := $(shell go env GOPATH)/bin:$(PATH)
 export PYTHONDONTWRITEBYTECODE := 1
 

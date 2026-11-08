@@ -322,7 +322,12 @@ func kittenTTSHelperServe(t *testing.T, alwaysFail, requireConcurrent, empty boo
 			return
 		}
 		if req.Text == "transport-error" {
-			conn, _, err := w.(http.Hijacker).Hijack()
+			hijacker, ok := w.(http.Hijacker)
+			if !ok {
+				fmt.Fprintln(os.Stderr, "response writer does not support hijacking")
+				return
+			}
+			conn, _, err := hijacker.Hijack()
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "hijack: %v\n", err)
 				return
@@ -404,7 +409,9 @@ func testRuntimeSynthesizeRegressions(t *testing.T) {
 			t.Fatal(err)
 		}
 		cancel()
-		<-a.wait
+		if err := <-a.wait; err != nil {
+			t.Fatalf("canceled worker exit = %v", err)
+		}
 		var got error
 		for _, err := range a.Synthesize(t.Context(), "hello") {
 			got = err
@@ -507,6 +514,7 @@ func testRuntimeSynthesizeRegressions(t *testing.T) {
 func TestNew(t *testing.T) {
 	t.Parallel()
 	t.Run("error", func(t *testing.T) {
+		t.Parallel()
 		t.Run("worker startup", testRuntimeStartup)
 		if _, err := New(t.Context(), Config{CacheDir: "relative"}); err == nil {
 			t.Fatal("relative cache directory accepted")

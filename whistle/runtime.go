@@ -2,7 +2,7 @@
 // Use of this source code is governed under the Apache License, Version 2.0
 // that can be found in the LICENSE file.
 
-// Managed Cactus Whistle ASR process and completed-utterance adapter.
+// Package whistle manages the Cactus Whistle ASR process and completed-utterance adapter.
 package whistle
 
 import (

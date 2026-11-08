@@ -21,6 +21,7 @@ import (
 func TestProviderRecognizer(t *testing.T) {
 	t.Parallel()
 	t.Run("Transcribe", func(t *testing.T) {
+		t.Parallel()
 		t.Run("input validation", testProviderRecognizerInputs)
 		t.Run("error", testProviderRecognizerFailure)
 		t.Run("WAV request", func(t *testing.T) {

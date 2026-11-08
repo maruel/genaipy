@@ -17,12 +17,12 @@ import (
 
 // Recognizer transcribes mono S16LE PCM captured at the supplied sample rate.
 type Recognizer interface {
-	Transcribe(context.Context, []byte, int) (string, error)
+	Transcribe(ctx context.Context, pcm []byte, sampleRate int) (string, error)
 }
 
 // Synthesizer streams mono S16LE PCM at SynthesisSampleRate.
 type Synthesizer interface {
-	Synthesize(context.Context, string) iter.Seq2[[]byte, error]
+	Synthesize(ctx context.Context, text string) iter.Seq2[[]byte, error]
 }
 
 // SynthesisSampleRate is the output sample rate of the synthesis adapters.
