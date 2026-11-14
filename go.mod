@@ -4,7 +4,7 @@ go 1.27.3
 
 require (
 	github.com/coder/websocket v1.8.15
-	github.com/maruel/genai v0.11.0
+	github.com/maruel/genai v0.11.2-0.20261114223038-75d3f77b7198
 	golang.org/x/text v0.42.0
 )
 
