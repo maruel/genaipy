@@ -58,7 +58,7 @@ def load_worker():
     kitten = types.ModuleType("kittenml")
     kitten.KittenTTS = FakeModel
     kitten.KittenTTS2 = FakeModel
-    path = pathlib.Path(__file__).resolve().parents[1] / "kittentts" / "worker.py"
+    path = pathlib.Path(__file__).resolve().parents[1] / "providers" / "kittentts" / "kittenttssrv" / "worker.py"
     spec = importlib.util.spec_from_file_location("genaipy_test_kitten_worker", path)
     module = importlib.util.module_from_spec(spec)
     with mock.patch.dict(sys.modules, {"numpy": numpy, "kittenml": kitten, spec.name: module}):

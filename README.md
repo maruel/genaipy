@@ -53,30 +53,49 @@ python llm.py --host 0.0.0.0 --port 8031
 
 ## Speech
 
-The `speech` package provides reusable recognition through a genai provider,
-OpenAI-compatible transcription endpoints, or whisper.cpp. `Transcribe` accepts
-signed 16-bit little-endian mono PCM and an explicit input sample rate. The
-provider recognizer strips Qwen ASR language metadata; callers retain ownership
-of the underlying provider.
+Recognizers in `providers/` are `genai.Provider`s whose `ConnectRealtime`, with
+`genai.RealtimeOptionTranscription`, transcribes one utterance of signed 16-bit
+little-endian mono PCM. `genai.RealtimeOptionAudio.InputLanguage` carries the
+spoken language as a BCP 47 tag; a language the model does not support fails
+the connection with `base.ErrNotSupported`. Send audio, then `Commit`; the
+session yields the final transcript and `TurnDone`.
 
-`speech.NewHTTPSynthesizer` configures an OpenAI-compatible model and voice.
-It streams raw mono S16LE PCM at 24 kHz; the configured server must produce that
-format. Its required HTTP client can supply authentication through a transport.
+Each engine pairs a client package with a server package that runs the
+engine locally; pass the server's `URL` to the client's `New`. The client
+reaches a remote server the same way.
 
-`kittentts.New(ctx, kittentts.Config{})` starts a managed KittenTTS worker through
-`uv` using Python 3.12. It pins the `kittenml` package and uses KittenTTS 2's
-streaming API. The default model is `KittenML/kitten-tts-2`, voice Jasper.
-`Config.Model`, `Config.Voice`, and `Config.CacheDir` configure it.
-The worker runs on CPU and yields complete sentence chunks as 24 kHz PCM.
-The default model cache is under the user's `genaipy/kittentts`
-cache directory. Startup installs the pinned package and downloads uncached
-models; no model installation occurs in default tests.
+`providers/nemospeech` transcribes through an NVIDIA
+[NeMo-Speech.cpp](https://github.com/NVIDIA/NeMo-Speech.cpp) server running
+Parakeet or Nemotron ASR. Nemotron and Parakeet CTC stream over the server's
+realtime WebSocket, yielding interim and segment transcripts as the server
+decodes. Parakeet TDT cannot stream: its session buffers the audio and
+transcribes it at `Commit`. `nemospeechsrv.Download` fetches a pinned
+native release, verified against its published SHA-256, and `nemospeechsrv.New`
+runs it on a loopback port; pass its `URL` to `nemospeech.New`. The server
+downloads the model into NeMo-Speech.cpp's own model cache on first use. No
+Python or `uv` is required.
 
-Call `Synthesize` to iterate over owned 24 kHz mono S16LE PCM chunks, and `Close`
-when finished. Cancelling a synthesis request leaves the worker available;
-the constructor context owns its lifetime. The worker closes its process when
-its stdin lifeline closes and reports inference failures as HTTP errors or
+`providers/whistle` transcribes 16 kHz audio through a Cactus Whistle worker
+at `Commit`, without drafts. Long clips use consecutive 30-second windows, with
+possible loss of accuracy on words crossing window boundaries.
+`whistlesrv.New(ctx, model)` runs the worker with `uv`, installing
+`cactus-needle==3.1.0`, which fetches a **prebuilt native engine** and the
+default Whistle weights on first use; `model` is an optional local `.cact`
+weights path. Telemetry is disabled.
+
+`providers/kittentts` streams speech from a KittenTTS worker: `Synthesize`
+yields owned mono S16LE PCM chunks at `kittentts.SampleRate`, 24 kHz, in the
+voice given to `kittentts.New`, Jasper by default. `kittenttssrv.New(ctx,
+kittenttssrv.Config{})` runs the worker with `uv` and Python 3.12, pinning the
+`kittenml` package and using KittenTTS 2's streaming API on CPU. The default
+model is `KittenML/kitten-tts-2`, cached under the user's `genaipy/kittentts`
+cache directory. The worker reports inference failures as HTTP errors or
 truncated streams.
+
+Each server's constructor context owns the worker's lifetime; cancelling a
+request leaves the worker available. The worker exits when its stdin lifeline
+closes. Startup installs the pinned package and downloads uncached models; no
+model installation occurs in default tests.
 
 ## Development
 
@@ -95,15 +114,6 @@ A working model requires sufficient memory and appropriate accelerator packages.
 model requires Hugging Face authentication; an ungated model such as
 `HuggingFaceTB/SmolLM2-135M-Instruct` is suitable for a small CPU smoke test.
 
-`whistle.New(ctx, model)` runs optional Cactus Whistle ASR through a persistent
-Python worker. It implements `speech.Recognizer` for 16 kHz mono S16LE PCM;
-`model` is an optional local `.cact` weights path. It requires `uv` and installs
-`cactus-needle==3.1.0`. Needle fetches a **prebuilt native engine** and default
-Whistle weights on first use. Telemetry is disabled. Close the runtime when
-finished. Long clips use consecutive 30-second windows, with possible loss of
-accuracy on words crossing window boundaries; transcripts are returned after
-completion rather than streamed.
-
 Offline tests cover the worker without installing Needle. To validate a real
 speech clip, explicitly opt in with
-`GENAIPY_WHISTLE_SMOKE_PCM=/path/to/16k-mono-s16le.pcm go test -run TestWhistleSmoke -v ./whistle`.
+`GENAIPY_WHISTLE_SMOKE_PCM=/path/to/16k-mono-s16le.pcm go test -run TestWhistleSmoke -v ./providers/whistle/whistlesrv`.

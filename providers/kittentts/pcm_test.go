@@ -4,7 +4,7 @@
 
 // Tests for aligned PCM streaming, owned storage and stream errors.
 
-package speech
+package kittentts
 
 import (
 	"bytes"
@@ -21,7 +21,7 @@ func TestPCMChunks(t *testing.T) {
 		t.Run("fragmented samples", func(t *testing.T) {
 			r := &fragmentReader{parts: [][]byte{{1}, {0, 2}, {0}, {3, 0}}}
 			var chunks [][]byte
-			for pcm, err := range PCMChunks(r) {
+			for pcm, err := range pcmChunks(r) {
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -33,7 +33,7 @@ func TestPCMChunks(t *testing.T) {
 		})
 		t.Run("early stop", func(t *testing.T) {
 			r := &fragmentReader{parts: [][]byte{{1, 0}, {2, 0}}}
-			for _, err := range PCMChunks(r) {
+			for _, err := range pcmChunks(r) {
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -44,7 +44,7 @@ func TestPCMChunks(t *testing.T) {
 			}
 		})
 		t.Run("empty", func(t *testing.T) {
-			for pcm, err := range PCMChunks(bytes.NewReader(nil)) {
+			for pcm, err := range pcmChunks(bytes.NewReader(nil)) {
 				t.Fatalf("empty stream yielded %v, %v", pcm, err)
 			}
 		})
@@ -54,7 +54,7 @@ func TestPCMChunks(t *testing.T) {
 		t.Run("odd trailing byte", func(t *testing.T) {
 			var got error
 			var pcm []byte
-			for chunk, err := range PCMChunks(bytes.NewReader([]byte{1, 0, 2})) {
+			for chunk, err := range pcmChunks(bytes.NewReader([]byte{1, 0, 2})) {
 				pcm = append(pcm, chunk...)
 				got = err
 			}
@@ -66,7 +66,7 @@ func TestPCMChunks(t *testing.T) {
 			sentinel := errors.New("reader failed")
 			var got error
 			var pcm []byte
-			for chunk, err := range PCMChunks(&fragmentReader{parts: [][]byte{{1, 0}}, err: sentinel}) {
+			for chunk, err := range pcmChunks(&fragmentReader{parts: [][]byte{{1, 0}}, err: sentinel}) {
 				pcm = append(pcm, chunk...)
 				got = err
 			}

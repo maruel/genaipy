@@ -1,0 +1,146 @@
+// Copyright 2026 Marc-Antoine Ruel. All rights reserved.
+// Use of this source code is governed under the Apache License, Version 2.0
+// that can be found in the LICENSE file.
+
+// Tests for the KittenTTS worker command, configuration and readiness.
+
+package kittenttssrv
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/maruel/genaipy/providers/kittentts"
+)
+
+func TestServer(t *testing.T) {
+	t.Parallel()
+	cfg, err := normalizeConfig(Config{CacheDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Run("ready", func(t *testing.T) {
+		t.Parallel()
+		s, err := start(t.Context(), cfg, helper("ready"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			if err := s.Close(); err != nil {
+				t.Error(err)
+			}
+		})
+		c, err := kittentts.New(&http.Client{}, s.URL(), "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var pcm []byte
+		for b, err := range c.Synthesize(t.Context(), "hello") {
+			if err != nil {
+				t.Fatal(err)
+			}
+			pcm = append(pcm, b...)
+		}
+		if !bytes.Equal(pcm, []byte{1, 2}) {
+			t.Errorf("pcm = %v", pcm)
+		}
+	})
+	t.Run("readiness", func(t *testing.T) {
+		t.Parallel()
+		for mode, want := range map[string]string{"startup-error": "missing model", "bad-rate": "sample rate", "bad-kind": "kind"} {
+			if _, err := start(t.Context(), cfg, helper(mode)); err == nil || !strings.Contains(err.Error(), want) {
+				t.Errorf("%s: %v", mode, err)
+			}
+		}
+	})
+}
+
+func TestCommand(t *testing.T) { //nolint:paralleltest // t.Setenv redirects os.UserCacheDir.
+	want := isolatedCacheDir(t)
+	if _, err := normalizeConfig(Config{CacheDir: "relative"}); err == nil {
+		t.Error("relative cache directory accepted")
+	}
+	cfg, err := normalizeConfig(Config{Model: "owner/model"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := command(t.Context(), cfg)
+	if cmd.Dir != want {
+		t.Errorf("cmd.Dir = %q, want %q", cmd.Dir, want)
+	}
+	if n := len(cmd.Args); n < 2 || cmd.Args[n-2] != "--model" || cmd.Args[n-1] != "owner/model" {
+		t.Errorf("model argument missing: %v", cmd.Args)
+	}
+}
+
+func isolatedCacheDir(t *testing.T) string {
+	base := t.TempDir()
+	switch runtime.GOOS {
+	case "darwin":
+		t.Setenv("HOME", base)
+		return filepath.Join(base, "Library", "Caches", "genaipy", "kittentts")
+	case "windows":
+		t.Setenv("LOCALAPPDATA", base)
+		return filepath.Join(base, "genaipy", "kittentts")
+	default:
+		t.Setenv("XDG_CACHE_HOME", base)
+		return filepath.Join(base, "genaipy", "kittentts")
+	}
+}
+
+func TestHelperProcess(t *testing.T) { //nolint:paralleltest // The helper subprocess exits instead of running as a test.
+	if os.Getenv("GENAIPY_KITTEN_TTS_HELPER") != "1" {
+		return
+	}
+	switch mode := os.Args[len(os.Args)-1]; mode {
+	case "ready":
+		serve()
+	case "bad-rate":
+		fmt.Println(`{"kind":"ready","url":"http://127.0.0.1:1","sample_rate":16000}`)
+	case "bad-kind":
+		fmt.Println(`{"kind":"other","url":"http://127.0.0.1:1","sample_rate":24000}`)
+	case "startup-error":
+		fmt.Println(`{"kind":"error","error":"missing model"}`)
+	}
+	// Mirror worker.py: exit once the server closes stdin.
+	_, _ = io.Copy(io.Discard, os.Stdin)
+	os.Exit(0)
+}
+
+// serve mirrors worker.py's readiness and streamed response.
+func serve() {
+	go func() {
+		_, _ = io.Copy(io.Discard, os.Stdin)
+		os.Exit(0)
+	}()
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		os.Exit(1)
+	}
+	fmt.Printf(`{"kind":"ready","url":"http://%s","voices":["Jasper"],"sample_rate":24000}`+"\n", ln.Addr())
+	srv := &http.Server{ReadHeaderTimeout: time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "audio/pcm")
+		_, _ = w.Write([]byte{1, 2})
+	})}
+	_ = srv.Serve(ln)
+	os.Exit(1)
+}
+
+func helper(mode string) func(context.Context) *exec.Cmd {
+	return func(ctx context.Context) *exec.Cmd {
+		cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestHelperProcess$", "--", mode)
+		cmd.Env = append(os.Environ(), "GENAIPY_KITTEN_TTS_HELPER=1")
+		return cmd
+	}
+}

@@ -1,0 +1,54 @@
+// Copyright 2026 Marc-Antoine Ruel. All rights reserved.
+// Use of this source code is governed under the Apache License, Version 2.0
+// that can be found in the LICENSE file.
+
+// Package whistlesrv runs the Cactus Whistle ASR worker for the whistle
+// client.
+//
+// Whistle requires a prebuilt Needle engine, fetched by the pinned
+// cactus-needle Python package that uv installs. No llama.cpp is involved.
+package whistlesrv
+
+import (
+	"context"
+	_ "embed"
+	"os"
+	"os/exec"
+
+	"github.com/maruel/genaipy/internal/worker"
+)
+
+//go:embed worker.py
+var script string
+
+// Server owns a Whistle worker process.
+type Server struct {
+	p   *worker.Process
+	url string
+}
+
+// New starts a worker, installing cactus-needle 3.1.0 with uv and downloading
+// weights when needed. model optionally selects a local .cact weights file;
+// otherwise the worker downloads whistle.DefaultModel. ctx owns the worker
+// lifetime; call Close when finished.
+func New(ctx context.Context, model string) (*Server, error) {
+	return start(ctx, func(ctx context.Context) *exec.Cmd {
+		cmd := exec.CommandContext(ctx, "uv", "run", "--isolated", "--no-project", "--python", "3.12", "--with", "cactus-needle==3.1.0", "python", "-u", "-c", script, "--model", model)
+		cmd.Env = append(os.Environ(), "NEEDLE_TELEMETRY=0", "DO_NOT_TRACK=1")
+		return cmd
+	})
+}
+
+func start(ctx context.Context, newCmd func(context.Context) *exec.Cmd) (*Server, error) {
+	p, u, err := worker.Start(ctx, "whistle", newCmd, func([]byte) error { return nil })
+	if err != nil {
+		return nil, err
+	}
+	return &Server{p: p, url: u}, nil
+}
+
+// URL is the worker's base URL for whistle.New.
+func (s *Server) URL() string { return s.url }
+
+// Close stops the worker and reports an unexpected exit. It is idempotent.
+func (s *Server) Close() error { return s.p.Close() }

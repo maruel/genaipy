@@ -2,7 +2,11 @@ module github.com/maruel/genaipy
 
 go 1.27.3
 
-require github.com/maruel/genai v0.11.0
+require (
+	github.com/coder/websocket v1.8.15
+	github.com/maruel/genai v0.11.0
+	golang.org/x/text v0.42.0
+)
 
 require (
 	github.com/andybalholm/brotli v1.2.6 // indirect

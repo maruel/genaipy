@@ -4,7 +4,7 @@
 
 // Opt-in validation with real Whistle dependencies and caller-provided audio.
 
-package whistle
+package whistlesrv
 
 import (
 	"os"
@@ -21,21 +21,18 @@ func TestWhistleSmoke(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w, err := New(t.Context(), "")
+	s, err := New(t.Context(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if err := w.Close(); err != nil {
+		if err := s.Close(); err != nil {
 			t.Error(err)
 		}
 	})
 	for range 2 {
 		start := time.Now()
-		text, err := w.Transcribe(t.Context(), pcm, 16000)
-		if err != nil {
-			t.Fatal(err)
-		}
+		text := transcribe(t, s, pcm)
 		if text == "" {
 			t.Fatal("empty transcript for speech clip")
 		}

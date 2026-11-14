@@ -12,7 +12,7 @@ import threading
 import time
 import unittest
 
-from whistle import worker as whistle_worker
+from providers.whistle.whistlesrv import worker as whistle_worker
 
 
 class Model:
