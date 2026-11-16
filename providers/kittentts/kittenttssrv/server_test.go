@@ -9,6 +9,7 @@ package kittenttssrv
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -41,12 +42,12 @@ func TestServer(t *testing.T) {
 				t.Error(err)
 			}
 		})
-		c, err := kittentts.New(&http.Client{}, s.URL(), "")
+		c, err := kittentts.New(&http.Client{}, s.URL())
 		if err != nil {
 			t.Fatal(err)
 		}
 		var pcm []byte
-		for b, err := range c.Synthesize(t.Context(), "hello") {
+		for b, err := range c.Synthesize(t.Context(), kittentts.Voice{}, "hello") {
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -58,7 +59,7 @@ func TestServer(t *testing.T) {
 	})
 	t.Run("readiness", func(t *testing.T) {
 		t.Parallel()
-		for mode, want := range map[string]string{"startup-error": "missing model", "bad-rate": "sample rate", "bad-kind": "kind"} {
+		for mode, want := range map[string]string{"startup-error": "missing model", "bad-rate": "sample rate", "bad-kind": "kind", "missing-voice": "KittenML/kitten-tts-2 has no voice AirportAnnouncer"} {
 			if _, err := start(t.Context(), cfg, helper(mode)); err == nil || !strings.Contains(err.Error(), want) {
 				t.Errorf("%s: %v", mode, err)
 			}
@@ -71,7 +72,10 @@ func TestCommand(t *testing.T) { //nolint:paralleltest // t.Setenv redirects os.
 	if _, err := normalizeConfig(Config{CacheDir: "relative"}); err == nil {
 		t.Error("relative cache directory accepted")
 	}
-	cfg, err := normalizeConfig(Config{Model: "owner/model"})
+	if _, err := normalizeConfig(Config{Model: "KittenML/kitten-tts-2-nano"}); err == nil {
+		t.Error("model without a voice catalog accepted")
+	}
+	cfg, err := normalizeConfig(Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +83,7 @@ func TestCommand(t *testing.T) { //nolint:paralleltest // t.Setenv redirects os.
 	if cmd.Dir != want {
 		t.Errorf("cmd.Dir = %q, want %q", cmd.Dir, want)
 	}
-	if n := len(cmd.Args); n < 2 || cmd.Args[n-2] != "--model" || cmd.Args[n-1] != "owner/model" {
+	if n := len(cmd.Args); n < 2 || cmd.Args[n-2] != "--model" || cmd.Args[n-1] != DefaultModel {
 		t.Errorf("model argument missing: %v", cmd.Args)
 	}
 }
@@ -110,6 +114,8 @@ func TestHelperProcess(t *testing.T) { //nolint:paralleltest // The helper subpr
 		fmt.Println(`{"kind":"ready","url":"http://127.0.0.1:1","sample_rate":16000}`)
 	case "bad-kind":
 		fmt.Println(`{"kind":"other","url":"http://127.0.0.1:1","sample_rate":24000}`)
+	case "missing-voice":
+		fmt.Println(`{"kind":"ready","url":"http://127.0.0.1:1","voices":["Jasper"],"sample_rate":24000}`)
 	case "startup-error":
 		fmt.Println(`{"kind":"error","error":"missing model"}`)
 	}
@@ -128,7 +134,19 @@ func serve() {
 	if err != nil {
 		os.Exit(1)
 	}
-	fmt.Printf(`{"kind":"ready","url":"http://%s","voices":["Jasper"],"sample_rate":24000}`+"\n", ln.Addr())
+	voices, err := kittentts.Voices(DefaultModel)
+	if err != nil {
+		os.Exit(1)
+	}
+	names := make([]string, len(voices))
+	for i, v := range voices {
+		names[i] = v.Name
+	}
+	ready, err := json.Marshal(map[string]any{"kind": "ready", "url": "http://" + ln.Addr().String(), "voices": names, "sample_rate": kittentts.SampleRate})
+	if err != nil {
+		os.Exit(1)
+	}
+	fmt.Println(string(ready))
 	srv := &http.Server{ReadHeaderTimeout: time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "audio/pcm")
 		_, _ = w.Write([]byte{1, 2})

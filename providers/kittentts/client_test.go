@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -27,8 +28,6 @@ func TestClient(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/octet-stream")
 		switch req.Text {
-		case "voice":
-			_, _ = w.Write([]byte(req.Voice[:2]))
 		case "error":
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusInternalServerError)
@@ -47,18 +46,18 @@ func TestClient(t *testing.T) {
 		}
 	}))
 	t.Cleanup(srv.Close)
-	c, err := New(srv.Client(), srv.URL+"/", "")
+	c, err := New(srv.Client(), srv.URL+"/")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Run("new", func(t *testing.T) {
 		t.Parallel()
 		for _, remote := range []string{"", "ftp://x", "http://u@x", "http://x?q", ":"} {
-			if _, err := New(srv.Client(), remote, ""); err == nil {
+			if _, err := New(srv.Client(), remote); err == nil {
 				t.Errorf("%q accepted", remote)
 			}
 		}
-		if _, err := New(nil, srv.URL, ""); err == nil {
+		if _, err := New(nil, srv.URL); err == nil {
 			t.Error("nil client accepted")
 		}
 	})
@@ -73,17 +72,37 @@ func TestClient(t *testing.T) {
 			}
 		}
 	})
-	t.Run("voice", func(t *testing.T) {
+	t.Run("request", func(t *testing.T) {
 		t.Parallel()
-		if pcm, err := collect(t.Context(), c, "voice"); err != nil || string(pcm) != DefaultVoice[:2] {
-			t.Errorf("default voice = %q, %v", pcm, err)
-		}
-		luna, err := New(srv.Client(), srv.URL, "Luna")
+		bodies := make(chan string, 1)
+		worker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			bodies <- string(body)
+			w.Header().Set("Content-Type", "audio/pcm")
+		}))
+		t.Cleanup(worker.Close)
+		c, err := New(worker.Client(), worker.URL)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if pcm, err := collect(t.Context(), luna, "voice"); err != nil || string(pcm) != "Lu" {
-			t.Errorf("configured voice = %q, %v", pcm, err)
+		for _, tc := range []struct {
+			voice Voice
+			want  string
+		}{
+			{Voice{}, `{"text":"hi","voice":"Jasper"}`},
+			{Voice{Name: "Luna"}, `{"text":"hi","voice":"Luna"}`},
+			{Voice{Name: "French", Language: "fr"}, `{"text":"hi","voice":"French","language":"fr"}`},
+		} {
+			if _, err := collectVoice(t.Context(), c, tc.voice, "hi"); err != nil {
+				t.Fatal(err)
+			}
+			if got := <-bodies; got != tc.want {
+				t.Errorf("%+v: request = %s, want %s", tc.voice, got, tc.want)
+			}
 		}
 	})
 	t.Run("failures", func(t *testing.T) {
@@ -94,7 +113,7 @@ func TestClient(t *testing.T) {
 		if _, err := collect(t.Context(), c, "json"); err == nil || !strings.Contains(err.Error(), "instead of PCM") {
 			t.Errorf("content type error = %v", err)
 		}
-		down, err := New(srv.Client(), "http://127.0.0.1:1", "")
+		down, err := New(srv.Client(), "http://127.0.0.1:1")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -107,7 +126,7 @@ func TestClient(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 		var got error
-		for pcm, err := range c.Synthesize(ctx, "cancel") {
+		for pcm, err := range c.Synthesize(ctx, Voice{}, "cancel") {
 			if len(pcm) > 0 {
 				cancel()
 			}
@@ -122,8 +141,12 @@ func TestClient(t *testing.T) {
 }
 
 func collect(ctx context.Context, c *Client, text string) ([]byte, error) {
+	return collectVoice(ctx, c, Voice{}, text)
+}
+
+func collectVoice(ctx context.Context, c *Client, voice Voice, text string) ([]byte, error) {
 	var out []byte
-	for pcm, err := range c.Synthesize(ctx, text) {
+	for pcm, err := range c.Synthesize(ctx, voice, text) {
 		if err != nil {
 			return nil, err
 		}

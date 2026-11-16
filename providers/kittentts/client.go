@@ -8,6 +8,7 @@ package kittentts
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -29,14 +30,11 @@ const DefaultVoice = "Jasper"
 type Client struct {
 	client *http.Client
 	remote string
-	voice  string
 }
 
-// New configures a KittenTTS worker at remote, its base URL.
-//
-// client is required. voice must be one of the loaded model's voices; empty
-// means DefaultVoice.
-func New(client *http.Client, remote, voice string) (*Client, error) {
+// New configures a KittenTTS worker at remote, its base URL. client is
+// required.
+func New(client *http.Client, remote string) (*Client, error) {
 	if client == nil {
 		return nil, errors.New("KittenTTS HTTP client is required")
 	}
@@ -44,22 +42,23 @@ func New(client *http.Client, remote, voice string) (*Client, error) {
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return nil, errors.New("KittenTTS worker must be an HTTP base URL without credentials, query or fragment")
 	}
-	if voice == "" {
-		voice = DefaultVoice
-	}
-	return &Client{client: client, remote: strings.TrimRight(remote, "/"), voice: voice}, nil
+	return &Client{client: client, remote: strings.TrimRight(remote, "/")}, nil
 }
 
-// Synthesize streams text as aligned SampleRate PCM chunks with independent
-// owned storage.
+// Synthesize streams text spoken by voice as aligned SampleRate PCM chunks
+// with independent owned storage.
 //
-// Stopping iteration closes the response. Empty text yields no audio.
-func (c *Client) Synthesize(ctx context.Context, text string) iter.Seq2[[]byte, error] {
+// voice.Name must be one of the loaded model's voices; empty means
+// DefaultVoice. The worker applies its English text normalization only when
+// voice.Language is empty or "en", because the upstream normalizer mangles
+// numbers, dates and abbreviations in other languages. Stopping iteration
+// closes the response. Empty text yields no audio.
+func (c *Client) Synthesize(ctx context.Context, voice Voice, text string) iter.Seq2[[]byte, error] {
 	return func(yield func([]byte, error) bool) {
 		if text == "" {
 			return
 		}
-		data, err := json.Marshal(request{Text: text, Voice: c.voice})
+		data, err := json.Marshal(request{Text: text, Voice: cmp.Or(voice.Name, DefaultVoice), Language: voice.Language})
 		if err != nil {
 			yield(nil, fmt.Errorf("encode KittenTTS request: %w", err))
 			return
@@ -99,6 +98,7 @@ func (c *Client) Synthesize(ctx context.Context, text string) iter.Seq2[[]byte, 
 }
 
 type request struct {
-	Text  string `json:"text"`
-	Voice string `json:"voice"`
+	Text     string `json:"text"`
+	Voice    string `json:"voice"`
+	Language string `json:"language,omitzero"`
 }

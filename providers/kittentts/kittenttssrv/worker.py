@@ -24,6 +24,8 @@ from kittenml import KittenTTS, KittenTTS2
 class Request:
     text: str
     voice: str
+    # ISO 639-1 code of the spoken language; empty means English.
+    language: str
 
     @classmethod
     def from_json(cls, raw: Any) -> "Request":
@@ -31,11 +33,14 @@ class Request:
             raise ValueError("request must be an object")
         text = raw.get("text")
         voice = raw.get("voice")
+        language = raw.get("language", "")
         if not isinstance(text, str):
             raise ValueError("text must be a string")
         if not isinstance(voice, str) or not voice:
             raise ValueError("voice is required")
-        return cls(text=text, voice=voice)
+        if not isinstance(language, str):
+            raise ValueError("language must be a string")
+        return cls(text=text, voice=voice, language=language)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -56,7 +61,10 @@ class Handler(BaseHTTPRequestHandler):
 
         with self.model_lock:
             try:
-                stream = self.model.generate_stream(text=request.text, voice=request.voice, normalize=True)
+                # The upstream normalizer is English-tuned; its documentation
+                # says to pass normalize=False for non-English text.
+                normalize = request.language in ("", "en")
+                stream = self.model.generate_stream(text=request.text, voice=request.voice, normalize=normalize)
                 first_audio = next(stream, None)
             except Exception as exc:  # noqa: BLE001
                 self.send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})

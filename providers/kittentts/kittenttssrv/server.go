@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 
 	"github.com/maruel/genaipy/internal/worker"
 	"github.com/maruel/genaipy/providers/kittentts"
@@ -37,7 +38,8 @@ const (
 // Config selects the worker's model and model cache.
 //
 // Zero values use DefaultModel and the user's cache directory under
-// genaipy/kittentts. CacheDir must be absolute when set.
+// genaipy/kittentts. Model must be one kittentts.Voices supports. CacheDir
+// must be absolute when set.
 type Config struct {
 	Model    string
 	CacheDir string
@@ -63,7 +65,14 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	return start(ctx, cfg, func(ctx context.Context) *exec.Cmd { return command(ctx, cfg) })
 }
 
+// start waits for the worker to load every voice kittentts.Voices lists: the
+// worker downloads the model's latest Hugging Face revision, whose voices may
+// differ from the listed revision's.
 func start(ctx context.Context, cfg Config, newCmd func(context.Context) *exec.Cmd) (*Server, error) {
+	want, err := kittentts.Voices(cfg.Model)
+	if err != nil {
+		return nil, err
+	}
 	p, u, err := worker.Start(ctx, "kittentts", newCmd, func(line []byte) error {
 		var r struct {
 			Kind       string   `json:"kind"`
@@ -82,6 +91,15 @@ func start(ctx context.Context, cfg Config, newCmd func(context.Context) *exec.C
 		}
 		if r.SampleRate != kittentts.SampleRate {
 			return fmt.Errorf("sample rate %d, want %d", r.SampleRate, kittentts.SampleRate)
+		}
+		// The worker loads the model from Hugging Face main, not the revision
+		// kittentts.Voices was read from: the pinned KittenTTS takes no
+		// revision. A voice renamed upstream fails here. Pinning would need the
+		// worker to download a revision itself and pass KittenTTS that directory.
+		for _, v := range want {
+			if !slices.Contains(r.Voices, v.Name) {
+				return fmt.Errorf("%s has no voice %s", cfg.Model, v.Name)
+			}
 		}
 		slog.InfoContext(ctx, "kittentts: ready", "model", cfg.Model, "voices", r.Voices)
 		return nil
@@ -109,6 +127,9 @@ func command(ctx context.Context, cfg Config) *exec.Cmd {
 func normalizeConfig(cfg Config) (Config, error) {
 	if cfg.Model == "" {
 		cfg.Model = DefaultModel
+	}
+	if _, err := kittentts.Voices(cfg.Model); err != nil {
+		return Config{}, err
 	}
 	if cfg.CacheDir == "" {
 		base, err := os.UserCacheDir()

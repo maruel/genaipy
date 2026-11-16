@@ -106,6 +106,16 @@ class WorkerTest(unittest.TestCase):
         self.assertEqual(response.read(), b"\x01\x00\x02\x00\x03\x00")
         self.assertEqual(model.requests, [{"text": "hello", "voice": "Luna", "normalize": True}])
 
+    def test_language_normalization(self):
+        # Upstream normalization is English-tuned; other languages are spoken verbatim.
+        for language, normalize in (("en", True), ("fr", False)):
+            with self.subTest(language=language):
+                model = FakeModel()
+                response = self.post(self.serve(model), {"text": "1 €", "voice": "French", "language": language})
+                self.assertEqual(response.status, 200)
+                response.read()
+                self.assertEqual(model.requests, [{"text": "1 €", "voice": "French", "normalize": normalize}])
+
     def test_empty_synthesis(self):
         response = self.post(self.serve(FakeModel("empty")), {"text": "emoji", "voice": "Luna"})
         self.assertEqual(response.status, 200)
@@ -133,7 +143,13 @@ class WorkerTest(unittest.TestCase):
 
     def test_request_validation(self):
         valid = {"text": "hello", "voice": "Luna"}
-        for raw in ([], {**valid, "voice": ""}, {**valid, "voice": None}, {**valid, "text": None}):
+        for raw in (
+            [],
+            {**valid, "voice": ""},
+            {**valid, "voice": None},
+            {**valid, "text": None},
+            {**valid, "language": 1},
+        ):
             with self.subTest(raw=raw), self.assertRaises(ValueError):
                 worker.Request.from_json(raw)
 
