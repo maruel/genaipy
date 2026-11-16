@@ -75,6 +75,12 @@ runs it on a loopback port; pass its `URL` to `nemospeech.New`. The server
 downloads the model into NeMo-Speech.cpp's own model cache on first use. No
 Python or `uv` is required.
 
+`providers/kyutai` streams 24 kHz audio to Kyutai STT 1B (English and French)
+or 2.6B (English) over moshi-server's `/api/asr-streaming` WebSocket and yields
+each word as a draft. `kyutaisrv.New` runs the models through `uv` with
+`moshi`, or `moshi-mlx` on Apple silicon. The client also reaches a stock
+`moshi-server`, sending the API key given to `kyutai.New`.
+
 `providers/whistle` transcribes 16 kHz audio through a Cactus Whistle worker
 at `Commit`, without drafts. Long clips use consecutive 30-second windows, with
 possible loss of accuracy on words crossing window boundaries.
