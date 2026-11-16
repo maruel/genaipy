@@ -182,6 +182,9 @@ func TestModel(t *testing.T) {
 	t.Parallel()
 	t.Run("Languages", func(t *testing.T) {
 		t.Parallel()
+		if !slices.Contains(Models, ParakeetTDT) {
+			t.Fatalf("Models %q lack %s", Models, ParakeetTDT)
+		}
 		for _, m := range Models {
 			a, err := New(http.DefaultClient, "http://127.0.0.1:1", m)
 			if err != nil {

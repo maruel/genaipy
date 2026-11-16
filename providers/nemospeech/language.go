@@ -36,13 +36,17 @@ var nemotronLanguages = func() []string {
 	return slices.Compact(out)
 }()
 
-var englishLanguages = []string{"en"}
-
-// parakeetTDTLanguages are the supported languages in the
-// nvidia/parakeet-tdt-0.6b-v3 model card.
-var parakeetTDTLanguages = []string{
-	"bg", "cs", "da", "de", "el", "en", "es", "et", "fi", "fr", "hr", "hu", "it",
-	"lt", "lv", "mt", "nl", "pl", "pt", "ro", "ru", "sk", "sl", "sv", "uk",
+// modelLanguages owns the model set: each model New accepts and its sorted
+// ISO 639 base languages.
+var modelLanguages = map[Model][]string{
+	NemotronASR:        nemotronLanguages,
+	NemotronASREnglish: {"en"},
+	ParakeetCTC:        {"en"},
+	// Supported languages in the nvidia/parakeet-tdt-0.6b-v3 model card.
+	ParakeetTDT: {
+		"bg", "cs", "da", "de", "el", "en", "es", "et", "fi", "fr", "hr", "hu", "it",
+		"lt", "lv", "mt", "nl", "pl", "pt", "ro", "ru", "sk", "sl", "sv", "uk",
+	},
 }
 
 // languageMapper resolves a spoken language to the value a request carries.

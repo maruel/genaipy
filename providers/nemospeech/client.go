@@ -17,9 +17,11 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/maruel/genai"
@@ -42,18 +44,7 @@ type Model string
 // returns nil for a model New rejects.
 //
 // Immutable: callers share the result.
-func (m Model) Languages() []string {
-	switch m {
-	case NemotronASR:
-		return nemotronLanguages
-	case NemotronASREnglish, ParakeetCTC:
-		return englishLanguages
-	case ParakeetTDT:
-		return parakeetTDTLanguages
-	default:
-		return nil
-	}
-}
+func (m Model) Languages() []string { return modelLanguages[m] }
 
 const (
 	// NemotronASR is nvidia/nemotron-3.5-asr-streaming-0.6b. A language selects
@@ -77,10 +68,10 @@ const (
 	ParakeetTDT Model = "parakeet-tdt"
 )
 
-// Models are the models New accepts.
+// Models are the models New accepts, sorted.
 //
 // Immutable.
-var Models = []Model{NemotronASR, NemotronASREnglish, ParakeetCTC, ParakeetTDT}
+var Models = slices.Sorted(maps.Keys(modelLanguages))
 
 // Client transcribes mono S16LE PCM through a NeMo-Speech.cpp server in
 // genai transcription sessions; other provider methods return
