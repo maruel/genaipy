@@ -79,7 +79,10 @@ func TestCommand(t *testing.T) { //nolint:paralleltest // t.Setenv redirects os.
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := command(t.Context(), cfg)
+	cmd := command(t.Context(), "/opt/uv", cfg)
+	if cmd.Path != "/opt/uv" {
+		t.Errorf("cmd.Path = %q, want /opt/uv", cmd.Path)
+	}
 	if cmd.Dir != want {
 		t.Errorf("cmd.Dir = %q, want %q", cmd.Dir, want)
 	}

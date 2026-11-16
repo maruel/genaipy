@@ -69,8 +69,9 @@ func TestStart(t *testing.T) {
 			t.Errorf("ready error = %v", err)
 		}
 		bad := func(ctx context.Context) *exec.Cmd { return exec.CommandContext(ctx, "/nonexistent") }
-		if _, _, err := Start(t.Context(), "test", bad, accept); err == nil {
-			t.Error("missing executable accepted")
+		// exec.Cmd.Start closes the stdin pipe itself on failure.
+		if _, _, err := Start(t.Context(), "test", bad, accept); err == nil || errors.Is(err, os.ErrClosed) {
+			t.Errorf("missing executable error = %v", err)
 		}
 	})
 	t.Run("startup cancellation", func(t *testing.T) {

@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -177,4 +178,15 @@ func transcribe(t *testing.T, c *nemospeech.Client) (string, error) {
 		}
 	}
 	return text, nil
+}
+
+func TestReleaseURL(t *testing.T) {
+	t.Parallel()
+	u, err := releaseURL("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(u, "https://github.com/NVIDIA/NeMo-Speech.cpp/releases/download/v"+Version+"/") {
+		t.Errorf("releaseURL = %q", u)
+	}
 }

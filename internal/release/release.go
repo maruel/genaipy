@@ -2,9 +2,8 @@
 // Use of this source code is governed under the Apache License, Version 2.0
 // that can be found in the LICENSE file.
 
-// Pinned NeMo-Speech.cpp release download, verification and extraction.
-
-package nemospeechsrv
+// Package release installs release archives verified by published SHA-256.
+package release
 
 import (
 	"archive/tar"
@@ -22,95 +21,40 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"runtime"
 	"strings"
 )
 
-// Version is the pinned NVIDIA/NeMo-Speech.cpp release.
-const Version = "0.3.0"
-
-// Backend selects a NeMo-Speech.cpp release build.
+// Install returns exe inside dir, downloading the archive at u and installing
+// its root directory as dir unless a complete install is present.
 //
-// Each platform publishes a subset: Linux x86-64 and Windows x86-64 have CPU,
-// CUDA and Vulkan; Linux arm64 has CPU, CUDA12, CUDA13 and Vulkan; macOS arm64
-// has CPU and Metal; macOS x86-64 has CPU; Windows arm64 has CUDA. New fails
-// for a build the release does not publish.
-type Backend string
-
-// Release builds.
-const (
-	CPU    Backend = "cpu"
-	CUDA   Backend = "cuda"
-	CUDA12 Backend = "cuda12"
-	CUDA13 Backend = "cuda13"
-	Metal  Backend = "metal"
-	Vulkan Backend = "vulkan"
-)
-
-// release returns the archive URL of backend for this platform. An empty
-// backend selects Metal on macOS arm64, CUDA on Windows arm64 (its only
-// build), and CPU elsewhere.
-func release(backend Backend) (string, error) {
-	osName := map[string]string{"darwin": "macos", "linux": "linux", "windows": "windows"}[runtime.GOOS]
-	arch := map[string]string{"amd64": "x86_64", "arm64": "aarch64"}[runtime.GOARCH]
-	if osName == "" || arch == "" {
-		return "", fmt.Errorf("NeMo-Speech.cpp has no build for %s/%s", runtime.GOOS, runtime.GOARCH)
-	}
-	switch backend {
-	case CPU, CUDA, CUDA12, CUDA13, Metal, Vulkan:
-	case "":
-		switch {
-		case runtime.GOOS == "darwin" && runtime.GOARCH == "arm64":
-			backend = Metal
-		case runtime.GOOS == "windows" && runtime.GOARCH == "arm64":
-			backend = CUDA
-		default:
-			backend = CPU
-		}
-	default:
-		return "", fmt.Errorf("unknown NeMo-Speech.cpp backend %q", backend)
-	}
-	ext := ".tar.gz"
-	if runtime.GOOS == "windows" {
-		ext = ".zip"
-	}
-	return "https://github.com/NVIDIA/NeMo-Speech.cpp/releases/download/v" + Version + "/nemo-speech-" + Version + "-" + osName + "-" + arch + "-" + string(backend) + ext, nil
-}
-
-// install returns the nemo-speech executable of the archive at u, downloading
-// and extracting it into cacheDir unless an installed copy is present.
-//
-// The archive must match the SHA-256 published beside it as u+".sha256" and
-// hold one top-level directory named after the archive, with the executable
-// in bin. Extraction stages into cacheDir and renames the complete tree into
-// place, so an interrupted install leaves no directory that looks installed.
-func install(ctx context.Context, client *http.Client, cacheDir, u string) (string, error) {
+// root is the slash-separated archive directory to install, empty for the
+// archive's top level. exe is slash-separated and relative to root. The
+// archive must match the SHA-256 published beside it as u+".sha256".
+// Extraction stages beside dir and renames the complete tree into place, so an
+// interrupted install leaves no directory that looks installed. A concurrent
+// installer may publish first; its verified tree is kept.
+func Install(ctx context.Context, client *http.Client, u, root, dir, exe string) (string, error) {
 	name := path.Base(u)
-	stem := strings.TrimSuffix(strings.TrimSuffix(name, ".tar.gz"), ".zip")
-	dir := filepath.Join(cacheDir, stem)
-	exeName := "nemo-speech"
-	if runtime.GOOS == "windows" {
-		exeName += ".exe"
-	}
-	exe := filepath.Join(dir, "bin", exeName)
+	exePath := filepath.Join(dir, filepath.FromSlash(exe))
 	// The marker holds the verified digest and is written last.
 	marker := filepath.Join(dir, ".sha256")
-	if installed(marker, exe) {
-		return exe, nil
+	if installed(marker, exePath) {
+		return exePath, nil
 	}
 	digest, err := publishedDigest(ctx, client, u+".sha256")
 	if err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+	parent := filepath.Dir(dir)
+	if err := os.MkdirAll(parent, 0o755); err != nil {
 		return "", err
 	}
-	archive, err := os.CreateTemp(cacheDir, ".download-*")
+	archive, err := os.CreateTemp(parent, ".download-*")
 	if err != nil {
 		return "", err
 	}
 	defer func() { _ = os.Remove(archive.Name()) }()
-	slog.InfoContext(ctx, "nemospeechsrv: downloading", "url", u)
+	slog.InfoContext(ctx, "release: downloading", "url", u)
 	err = download(ctx, client, u, digest, archive)
 	if err2 := archive.Close(); err == nil {
 		err = err2
@@ -118,7 +62,7 @@ func install(ctx context.Context, client *http.Client, cacheDir, u string) (stri
 	if err != nil {
 		return "", err
 	}
-	staging, err := os.MkdirTemp(cacheDir, ".nemo-speech-*")
+	staging, err := os.MkdirTemp(parent, ".install-*")
 	if err != nil {
 		return "", err
 	}
@@ -131,22 +75,25 @@ func install(ctx context.Context, client *http.Client, cacheDir, u string) (stri
 	if err != nil {
 		return "", fmt.Errorf("extract %s: %w", name, err)
 	}
-	tree := filepath.Join(staging, stem)
-	if fi, err := os.Stat(filepath.Join(tree, "bin", exeName)); err != nil || !fi.Mode().IsRegular() {
-		return "", fmt.Errorf("%s has no bin/%s", name, exeName)
+	tree := filepath.Join(staging, filepath.FromSlash(root))
+	if fi, err := os.Stat(filepath.Join(tree, filepath.FromSlash(exe))); err != nil || !fi.Mode().IsRegular() {
+		return "", fmt.Errorf("%s has no %s", name, path.Join(root, exe))
 	}
 	if err := os.WriteFile(filepath.Join(tree, ".sha256"), []byte(digest), 0o644); err != nil {
 		return "", err
 	}
-	// Replace an incomplete tree. A concurrent installer may win the rename;
-	// its verified tree is equally valid.
+	// Keep a tree a concurrent installer published meanwhile: Windows cannot
+	// remove its running executable. Otherwise replace an incomplete tree.
+	if installed(marker, exePath) {
+		return exePath, nil
+	}
 	if err := os.RemoveAll(dir); err != nil {
 		return "", err
 	}
-	if err := os.Rename(tree, dir); err != nil && !installed(marker, exe) {
+	if err := os.Rename(tree, dir); err != nil && !installed(marker, exePath) {
 		return "", err
 	}
-	return exe, nil
+	return exePath, nil
 }
 
 // installed reports whether the tree of marker is complete.
@@ -167,11 +114,11 @@ func publishedDigest(ctx context.Context, client *http.Client, u string) (string
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("download NeMo-Speech.cpp checksum: %w", err)
+		return "", fmt.Errorf("download %s: %w", u, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusNotFound {
-		return "", fmt.Errorf("NeMo-Speech.cpp %s has no build %s", Version, strings.TrimSuffix(path.Base(u), ".sha256"))
+		return "", fmt.Errorf("release has no %s", strings.TrimSuffix(path.Base(u), ".sha256"))
 	}
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("download %s: HTTP %s", u, resp.Status)
@@ -194,7 +141,7 @@ func download(ctx context.Context, client *http.Client, u, digest string, w io.W
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("download NeMo-Speech.cpp: %w", err)
+		return fmt.Errorf("download %s: %w", u, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {

@@ -4,7 +4,7 @@
 
 // Tests for release download verification, archive safety and install reuse.
 
-package nemospeechsrv
+package release
 
 import (
 	"archive/tar"
@@ -97,13 +97,6 @@ func serve(t *testing.T, name string, archive []byte, digest string) (string, *a
 	return srv.URL + "/" + name, &n
 }
 
-func exeName() string {
-	if runtime.GOOS == "windows" {
-		return "nemo-speech.exe"
-	}
-	return "nemo-speech"
-}
-
 func TestInstall(t *testing.T) {
 	t.Parallel()
 	t.Run("valid", func(t *testing.T) {
@@ -112,17 +105,17 @@ func TestInstall(t *testing.T) {
 			t.Parallel()
 			archive := tarGz(t,
 				entry{name: "ns-1/"},
-				entry{name: "ns-1/bin/" + exeName(), body: "exe"},
+				entry{name: "ns-1/bin/tool", body: "exe"},
 				entry{name: "ns-1/lib/libx.so.1.2", body: "lib"},
 				entry{name: "ns-1/lib/libx.so.1", link: "libx.so.1.2"})
 			u, downloads := serve(t, "ns-1.tar.gz", archive, digestOf(archive))
 			cache := t.TempDir()
 			for range 2 {
-				exe, err := install(t.Context(), http.DefaultClient, cache, u)
+				exe, err := Install(t.Context(), http.DefaultClient, u, "ns-1", filepath.Join(cache, "ns-1"), "bin/tool")
 				if err != nil {
 					t.Fatal(err)
 				}
-				if want := filepath.Join(cache, "ns-1", "bin", exeName()); exe != want {
+				if want := filepath.Join(cache, "ns-1", "bin", "tool"); exe != want {
 					t.Fatalf("exe = %q, want %q", exe, want)
 				}
 			}
@@ -133,19 +126,27 @@ func TestInstall(t *testing.T) {
 			if b, err := os.ReadFile(filepath.Join(cache, "ns-1", "lib", "libx.so.1")); err != nil || string(b) != "lib" {
 				t.Errorf("library alias = %q, %v", b, err)
 			}
-			if fi, err := os.Stat(filepath.Join(cache, "ns-1", "bin", exeName())); err != nil || runtime.GOOS != "windows" && fi.Mode().Perm()&0o100 == 0 {
+			if fi, err := os.Stat(filepath.Join(cache, "ns-1", "bin", "tool")); err != nil || runtime.GOOS != "windows" && fi.Mode().Perm()&0o100 == 0 {
 				t.Errorf("executable mode = %v, %v", fi, err)
 			}
 			if leftovers, _ := filepath.Glob(filepath.Join(cache, ".*")); len(leftovers) != 0 {
 				t.Errorf("staging files left: %q", leftovers)
 			}
 		})
-		t.Run("zip", func(t *testing.T) {
+		t.Run("zip without root", func(t *testing.T) {
 			t.Parallel()
-			archive := zipArchive(t, entry{name: "ns-2/bin/" + exeName(), body: "exe"})
+			archive := zipArchive(t, entry{name: "tool", body: "exe"}, entry{name: "other", body: "x"})
 			u, _ := serve(t, "ns-2.zip", archive, digestOf(archive))
-			if _, err := install(t.Context(), http.DefaultClient, t.TempDir(), u); err != nil {
+			dir := filepath.Join(t.TempDir(), "ns-2")
+			exe, err := Install(t.Context(), http.DefaultClient, u, "", dir, "tool")
+			if err != nil {
 				t.Fatal(err)
+			}
+			if b, err := os.ReadFile(exe); err != nil || string(b) != "exe" {
+				t.Fatalf("exe = %q, %v", b, err)
+			}
+			if b, err := os.ReadFile(filepath.Join(dir, "other")); err != nil || string(b) != "x" {
+				t.Errorf("other = %q, %v", b, err)
 			}
 		})
 		t.Run("replaces an incomplete install", func(t *testing.T) {
@@ -157,9 +158,9 @@ func TestInstall(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(cache, "ns-3", ".sha256"), []byte("old"), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			archive := tarGz(t, entry{name: "ns-3/bin/" + exeName(), body: "new"})
+			archive := tarGz(t, entry{name: "ns-3/bin/tool", body: "new"})
 			u, _ := serve(t, "ns-3.tar.gz", archive, digestOf(archive))
-			exe, err := install(t.Context(), http.DefaultClient, cache, u)
+			exe, err := Install(t.Context(), http.DefaultClient, u, "ns-3", filepath.Join(cache, "ns-3"), "bin/tool")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -170,7 +171,7 @@ func TestInstall(t *testing.T) {
 	})
 	t.Run("error", func(t *testing.T) {
 		t.Parallel()
-		exe := entry{name: "ns/bin/" + exeName(), body: "exe"}
+		exe := entry{name: "ns/bin/tool", body: "exe"}
 		for _, tc := range []struct {
 			name    string
 			archive []byte
@@ -196,7 +197,7 @@ func TestInstall(t *testing.T) {
 				t.Parallel()
 				u, _ := serve(t, "ns.tar.gz", tc.archive, digestOf(tc.archive))
 				cache := t.TempDir()
-				if _, err := install(t.Context(), http.DefaultClient, cache, u); err == nil {
+				if _, err := Install(t.Context(), http.DefaultClient, u, "ns", filepath.Join(cache, "ns"), "bin/tool"); err == nil {
 					t.Fatal("unsafe archive accepted")
 				}
 				if _, err := os.Stat(filepath.Join(cache, "ns")); !os.IsNotExist(err) {
@@ -206,10 +207,10 @@ func TestInstall(t *testing.T) {
 		}
 		t.Run("digest mismatch", func(t *testing.T) {
 			t.Parallel()
-			archive := tarGz(t, entry{name: "ns/bin/" + exeName(), body: "tampered"})
+			archive := tarGz(t, entry{name: "ns/bin/tool", body: "tampered"})
 			u, _ := serve(t, "ns.tar.gz", archive, digestOf([]byte("expected")))
 			cache := t.TempDir()
-			if _, err := install(t.Context(), http.DefaultClient, cache, u); err == nil || !strings.Contains(err.Error(), "SHA-256") {
+			if _, err := Install(t.Context(), http.DefaultClient, u, "ns", filepath.Join(cache, "ns"), "bin/tool"); err == nil || !strings.Contains(err.Error(), "SHA-256") {
 				t.Fatalf("error = %v", err)
 			}
 			if entries, _ := os.ReadDir(cache); len(entries) != 0 {
@@ -219,27 +220,16 @@ func TestInstall(t *testing.T) {
 		t.Run("malformed checksum", func(t *testing.T) {
 			t.Parallel()
 			u, _ := serve(t, "ns.tar.gz", nil, "not-hex")
-			if _, err := install(t.Context(), http.DefaultClient, t.TempDir(), u); err == nil || !strings.Contains(err.Error(), "malformed") {
+			if _, err := Install(t.Context(), http.DefaultClient, u, "ns", filepath.Join(t.TempDir(), "ns"), "bin/tool"); err == nil || !strings.Contains(err.Error(), "malformed") {
 				t.Fatalf("error = %v", err)
 			}
 		})
 		t.Run("missing build", func(t *testing.T) {
 			t.Parallel()
 			u, _ := serve(t, "other.tar.gz", nil, "")
-			if _, err := install(t.Context(), http.DefaultClient, t.TempDir(), strings.Replace(u, "other", "ns", 1)); err == nil || !strings.Contains(err.Error(), "no build ns") {
+			if _, err := Install(t.Context(), http.DefaultClient, strings.Replace(u, "other", "ns", 1), "ns", filepath.Join(t.TempDir(), "ns"), "bin/tool"); err == nil || !strings.Contains(err.Error(), "release has no ns.tar.gz") {
 				t.Fatalf("error = %v", err)
 			}
 		})
 	})
-}
-
-func TestRelease(t *testing.T) {
-	t.Parallel()
-	u, err := release("")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.HasPrefix(u, "https://github.com/NVIDIA/NeMo-Speech.cpp/releases/download/v"+Version+"/") {
-		t.Errorf("release = %q", u)
-	}
 }

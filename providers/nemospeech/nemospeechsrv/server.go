@@ -28,6 +28,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -35,7 +36,29 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/maruel/genaipy/internal/release"
 	"github.com/maruel/genaipy/providers/nemospeech"
+)
+
+// Version is the pinned NVIDIA/NeMo-Speech.cpp release.
+const Version = "0.3.0"
+
+// Backend selects a NeMo-Speech.cpp release build.
+//
+// Each platform publishes a subset: Linux x86-64 and Windows x86-64 have CPU,
+// CUDA and Vulkan; Linux arm64 has CPU, CUDA12, CUDA13 and Vulkan; macOS arm64
+// has CPU and Metal; macOS x86-64 has CPU; Windows arm64 has CUDA. New fails
+// for a build the release does not publish.
+type Backend string
+
+// Release builds.
+const (
+	CPU    Backend = "cpu"
+	CUDA   Backend = "cuda"
+	CUDA12 Backend = "cuda12"
+	CUDA13 Backend = "cuda13"
+	Metal  Backend = "metal"
+	Vulkan Backend = "vulkan"
 )
 
 // Server owns a NeMo-Speech.cpp server process.
@@ -129,11 +152,50 @@ func Download(ctx context.Context, cacheDir string, backend Backend) (string, er
 	if !filepath.IsAbs(cacheDir) {
 		return "", errors.New("nemospeechsrv: cache directory must be an absolute path")
 	}
-	u, err := release(backend)
+	u, err := releaseURL(backend)
 	if err != nil {
 		return "", err
 	}
-	return install(ctx, http.DefaultClient, cacheDir, u)
+	stem := strings.TrimSuffix(strings.TrimSuffix(path.Base(u), ".tar.gz"), ".zip")
+	exe := "bin/nemo-speech"
+	if runtime.GOOS == "windows" {
+		exe += ".exe"
+	}
+	exe, err = release.Install(ctx, http.DefaultClient, u, stem, filepath.Join(cacheDir, stem), exe)
+	if err != nil {
+		return "", fmt.Errorf("NeMo-Speech.cpp %s: %w", Version, err)
+	}
+	return exe, nil
+}
+
+// releaseURL returns the archive URL of backend for this platform. An empty
+// backend selects Metal on macOS arm64, CUDA on Windows arm64 (its only
+// build), and CPU elsewhere.
+func releaseURL(backend Backend) (string, error) {
+	osName := map[string]string{"darwin": "macos", "linux": "linux", "windows": "windows"}[runtime.GOOS]
+	arch := map[string]string{"amd64": "x86_64", "arm64": "aarch64"}[runtime.GOARCH]
+	if osName == "" || arch == "" {
+		return "", fmt.Errorf("NeMo-Speech.cpp has no build for %s/%s", runtime.GOOS, runtime.GOARCH)
+	}
+	switch backend {
+	case CPU, CUDA, CUDA12, CUDA13, Metal, Vulkan:
+	case "":
+		switch {
+		case runtime.GOOS == "darwin" && runtime.GOARCH == "arm64":
+			backend = Metal
+		case runtime.GOOS == "windows" && runtime.GOARCH == "arm64":
+			backend = CUDA
+		default:
+			backend = CPU
+		}
+	default:
+		return "", fmt.Errorf("unknown NeMo-Speech.cpp backend %q", backend)
+	}
+	ext := ".tar.gz"
+	if runtime.GOOS == "windows" {
+		ext = ".zip"
+	}
+	return "https://github.com/NVIDIA/NeMo-Speech.cpp/releases/download/v" + Version + "/nemo-speech-" + Version + "-" + osName + "-" + arch + "-" + string(backend) + ext, nil
 }
 
 // ready reports whether GET /ready succeeds. The server answers 503 until an

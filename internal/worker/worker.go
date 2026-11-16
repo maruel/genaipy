@@ -56,8 +56,9 @@ func Start(ctx context.Context, name string, newCmd func(context.Context) *exec.
 	cmd.Stdout = wr
 	cmd.Stderr = slog.NewLogLogger(slog.Default().Handler(), slog.LevelInfo).Writer()
 	if err := cmd.Start(); err != nil {
+		// Start already closed the stdin pipe.
 		cancel()
-		return nil, "", errors.Join(fmt.Errorf("%s: start: %w", name, err), stdin.Close(), rd.Close(), wr.Close())
+		return nil, "", errors.Join(fmt.Errorf("%s: start: %w", name, err), rd.Close(), wr.Close())
 	}
 	p := &Process{cancel: cancel, stdin: stdin, done: make(chan struct{})}
 	// The scanner reuses its buffer, so the line is copied.

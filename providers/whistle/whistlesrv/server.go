@@ -6,7 +6,8 @@
 // client.
 //
 // Whistle requires a prebuilt Needle engine, fetched by the pinned
-// cactus-needle Python package that uv installs. No llama.cpp is involved.
+// cactus-needle Python package that the pinned uv installs. No llama.cpp is
+// involved.
 package whistlesrv
 
 import (
@@ -15,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 
+	"github.com/maruel/genaipy/internal/uv"
 	"github.com/maruel/genaipy/internal/worker"
 )
 
@@ -27,13 +29,17 @@ type Server struct {
 	url string
 }
 
-// New starts a worker, installing cactus-needle 3.1.0 with uv and downloading
-// weights when needed. model optionally selects a local .cact weights file;
+// New starts a worker, installing the pinned uv and cactus-needle 3.1.0 and
+// downloading weights when needed. model optionally selects a local .cact weights file;
 // otherwise the worker downloads whistle.DefaultModel. ctx owns the worker
 // lifetime; call Close when finished.
 func New(ctx context.Context, model string) (*Server, error) {
+	uvExe, err := uv.Install(ctx)
+	if err != nil {
+		return nil, err
+	}
 	return start(ctx, func(ctx context.Context) *exec.Cmd {
-		cmd := exec.CommandContext(ctx, "uv", "run", "--isolated", "--no-project", "--python", "3.12", "--with", "cactus-needle==3.1.0", "python", "-u", "-c", script, "--model", model)
+		cmd := exec.CommandContext(ctx, uvExe, "run", "--isolated", "--no-project", "--python", "3.12", "--with", "cactus-needle==3.1.0", "python", "-u", "-c", script, "--model", model)
 		cmd.Env = append(os.Environ(), "NEEDLE_TELEMETRY=0", "DO_NOT_TRACK=1")
 		return cmd
 	})

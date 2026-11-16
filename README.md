@@ -78,7 +78,7 @@ Python or `uv` is required.
 `providers/whistle` transcribes 16 kHz audio through a Cactus Whistle worker
 at `Commit`, without drafts. Long clips use consecutive 30-second windows, with
 possible loss of accuracy on words crossing window boundaries.
-`whistlesrv.New(ctx, model)` runs the worker with `uv`, installing
+`whistlesrv.New(ctx, model)` runs the worker with the pinned `uv`, installing
 `cactus-needle==3.1.0`, which fetches a **prebuilt native engine** and the
 default Whistle weights on first use; `model` is an optional local `.cact`
 weights path. Telemetry is disabled.
@@ -86,11 +86,15 @@ weights path. Telemetry is disabled.
 `providers/kittentts` streams speech from a KittenTTS worker: `Synthesize`
 yields owned mono S16LE PCM chunks at `kittentts.SampleRate`, 24 kHz, in the
 voice given to `kittentts.New`, Jasper by default. `kittenttssrv.New(ctx,
-kittenttssrv.Config{})` runs the worker with `uv` and Python 3.12, pinning the
-`kittenml` package and using KittenTTS 2's streaming API on CPU. The default
-model is `KittenML/kitten-tts-2`, cached under the user's `genaipy/kittentts`
-cache directory. The worker reports inference failures as HTTP errors or
+kittenttssrv.Config{})` runs the worker with the pinned `uv` and Python 3.12,
+pinning the `kittenml` package and using KittenTTS 2's streaming API on CPU.
+The default model is `KittenML/kitten-tts-2`, cached under the user's
+`genaipy/kittentts` cache directory. The worker reports inference failures as HTTP errors or
 truncated streams.
+
+The Python workers download a pinned `uv` release, verified against its
+published SHA-256, into the user's `genaipy/uv` cache directory on first use; a
+`uv` on `PATH` is not required.
 
 Each server's constructor context owns the worker's lifetime; cancelling a
 request leaves the worker available. The worker exits when its stdin lifeline

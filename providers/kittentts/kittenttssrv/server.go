@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"slices"
 
+	"github.com/maruel/genaipy/internal/uv"
 	"github.com/maruel/genaipy/internal/worker"
 	"github.com/maruel/genaipy/providers/kittentts"
 )
@@ -51,9 +52,9 @@ type Server struct {
 	url string
 }
 
-// New starts the worker, installing its pinned Python package with uv if
-// needed. Startup downloads the model when it is absent from the cache. ctx
-// owns the worker lifetime; call Close when finished.
+// New starts the worker, installing the pinned uv and its pinned Python
+// package if needed. Startup downloads the model when it is absent from the
+// cache. ctx owns the worker lifetime; call Close when finished.
 func New(ctx context.Context, cfg Config) (*Server, error) {
 	cfg, err := normalizeConfig(cfg)
 	if err != nil {
@@ -62,7 +63,11 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	if err := os.MkdirAll(cfg.CacheDir, 0o750); err != nil {
 		return nil, fmt.Errorf("create KittenTTS cache dir: %w", err)
 	}
-	return start(ctx, cfg, func(ctx context.Context) *exec.Cmd { return command(ctx, cfg) })
+	uvExe, err := uv.Install(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return start(ctx, cfg, func(ctx context.Context) *exec.Cmd { return command(ctx, uvExe, cfg) })
 }
 
 // start waits for the worker to load every voice kittentts.Voices lists: the
@@ -116,8 +121,8 @@ func (s *Server) URL() string { return s.url }
 // Close stops the worker and reports an unexpected exit. It is idempotent.
 func (s *Server) Close() error { return s.p.Close() }
 
-func command(ctx context.Context, cfg Config) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, "uv", "run", "--isolated", "--python", pythonVersion, "--with", kittenTTSPackage, "python", "-u", "-c", script, "--cache-dir", cfg.CacheDir, "--model", cfg.Model)
+func command(ctx context.Context, uvExe string, cfg Config) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, uvExe, "run", "--isolated", "--python", pythonVersion, "--with", kittenTTSPackage, "python", "-u", "-c", script, "--cache-dir", cfg.CacheDir, "--model", cfg.Model)
 	cmd.Dir = cfg.CacheDir
 	// Keep model download progress out of logs without hiding warnings or errors.
 	cmd.Env = append(cmd.Environ(), "HF_HUB_DISABLE_PROGRESS_BARS=1")
