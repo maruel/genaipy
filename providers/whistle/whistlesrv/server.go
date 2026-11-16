@@ -16,12 +16,15 @@ import (
 	"os"
 	"os/exec"
 
+	"github.com/maruel/genai"
 	"github.com/maruel/genaipy/internal/uv"
 	"github.com/maruel/genaipy/internal/worker"
 )
 
 //go:embed worker.py
 var script string
+
+var _ genai.Server = (*Server)(nil)
 
 // Server owns a Whistle worker process.
 type Server struct {
@@ -58,3 +61,9 @@ func (s *Server) URL() string { return s.url }
 
 // Close stops the worker and reports an unexpected exit. It is idempotent.
 func (s *Server) Close() error { return s.p.Close() }
+
+// Done implements genai.Server.
+func (s *Server) Done() <-chan struct{} { return s.p.Done() }
+
+// Err implements genai.Server.
+func (s *Server) Err() error { return s.p.Err() }

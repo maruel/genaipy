@@ -15,9 +15,12 @@ import (
 	"io"
 	"log/slog"
 	"net/url"
+	"os"
 	"os/exec"
 	"sync"
 	"time"
+
+	"github.com/maruel/genai/base"
 )
 
 // startupTimeout bounds readiness, which may include a package install and a
@@ -79,13 +82,9 @@ func Start(ctx context.Context, name string, newCmd func(context.Context) *exec.
 		}
 	}()
 	go func() {
-		err := cmd.Wait()
-		if procCtx.Err() != nil {
-			// Shutdown was requested. The exit status of a killed process differs
-			// per platform, so it is not classified.
-			err = nil
-		}
-		p.err = err
+		// Cancellation kills the launcher, as exec.CommandContext does by
+		// default; the worker exits on its own when stdin closes.
+		p.err = base.ServerExit(cmd.Wait(), cmd.ProcessState, procCtx.Err() != nil, os.Kill)
 		_ = wr.Close()
 		close(p.done)
 	}()
@@ -125,6 +124,19 @@ func (p *Process) Close() error {
 	p.closeOnce.Do(func() { p.cancel(); _ = p.stdin.Close() })
 	<-p.done
 	return p.err
+}
+
+// Done is closed when the worker exits, as genai.Server specifies.
+func (p *Process) Done() <-chan struct{} { return p.done }
+
+// Err is the exit result once Done is closed, as genai.Server specifies.
+func (p *Process) Err() error {
+	select {
+	case <-p.done:
+		return p.err
+	default:
+		return nil
+	}
 }
 
 func readyURL(line []byte) (string, error) {

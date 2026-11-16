@@ -36,10 +36,14 @@ func Voices(model string) ([]Voice, error) {
 	return slices.Clone(kittenTTS2Voices), nil
 }
 
+// Revision is the Hugging Face commit of KittenML/kitten-tts-2 whose
+// voices/voices.json Voices lists. kittenttssrv loads the model at this commit,
+// so the listed voices and languages cannot drift with the repository's main.
+const Revision = "c93cb7c271baa51d9ae8204d5277988906f235a2"
+
 // kittenTTS2Voices lists voices/voices.json of KittenML/kitten-tts-2 at
-// Hugging Face revision c93cb7c271baa51d9ae8204d5277988906f235a2. Each
-// non-English voice_id carries its ISO 639-1 code as a "fr_" prefix or a
-// "_fr" suffix, and its name starts with the English language name.
+// Revision. Each non-English voice_id carries its ISO 639-1 code as a "fr_"
+// prefix or a "_fr" suffix, and its name starts with the English language name.
 var kittenTTS2Voices = []Voice{
 	{Name: "AirportAnnouncer", Language: "en"},
 	{Name: "Alfred", Language: "en"},

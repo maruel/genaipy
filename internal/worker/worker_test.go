@@ -39,6 +39,10 @@ func TestStart(t *testing.T) {
 		if err := p.Close(); err != nil {
 			t.Fatal(err)
 		}
+		<-p.Done()
+		if err := p.Err(); err != nil {
+			t.Errorf("requested stop reported %v", err)
+		}
 		if err := p.Close(); err != nil {
 			t.Fatal(err)
 		}
@@ -49,7 +53,10 @@ func TestStart(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		<-p.done
+		<-p.Done()
+		if err := p.Err(); err == nil {
+			t.Error("Err did not report the unexpected exit")
+		}
 		if err := p.Close(); err == nil {
 			t.Error("unexpected exit not reported")
 		}

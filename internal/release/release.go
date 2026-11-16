@@ -22,6 +22,9 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"github.com/gofrs/flock"
 )
 
 // Install returns exe inside dir, downloading the archive at u and installing
@@ -31,8 +34,14 @@ import (
 // archive's top level. exe is slash-separated and relative to root. The
 // archive must match the SHA-256 published beside it as u+".sha256".
 // Extraction stages beside dir and renames the complete tree into place, so an
-// interrupted install leaves no directory that looks installed. A concurrent
-// installer may publish first; its verified tree is kept.
+// interrupted install leaves no directory that looks installed.
+//
+// Installers of dir, in this process or another, take turns through an
+// exclusive lock on dir+".lock"; a waiter returns the tree the previous holder
+// published. The operating system releases the lock when its holder exits, so
+// a crashed installer leaves no stale lock. The lock file stays on disk:
+// removing it would let a waiter hold a lock on the unlinked file while a
+// newcomer locks a new one. ctx cancels the wait.
 func Install(ctx context.Context, client *http.Client, u, root, dir, exe string) (string, error) {
 	name := path.Base(u)
 	exePath := filepath.Join(dir, filepath.FromSlash(exe))
@@ -41,12 +50,20 @@ func Install(ctx context.Context, client *http.Client, u, root, dir, exe string)
 	if installed(marker, exePath) {
 		return exePath, nil
 	}
-	digest, err := publishedDigest(ctx, client, u+".sha256")
-	if err != nil {
-		return "", err
-	}
 	parent := filepath.Dir(dir)
 	if err := os.MkdirAll(parent, 0o755); err != nil {
+		return "", err
+	}
+	lock := flock.New(dir + ".lock")
+	if _, err := lock.TryLockContext(ctx, 100*time.Millisecond); err != nil {
+		return "", fmt.Errorf("lock %s: %w", dir, err)
+	}
+	defer func() { _ = lock.Close() }()
+	if installed(marker, exePath) {
+		return exePath, nil
+	}
+	digest, err := publishedDigest(ctx, client, u+".sha256")
+	if err != nil {
 		return "", err
 	}
 	archive, err := os.CreateTemp(parent, ".download-*")
@@ -82,15 +99,11 @@ func Install(ctx context.Context, client *http.Client, u, root, dir, exe string)
 	if err := os.WriteFile(filepath.Join(tree, ".sha256"), []byte(digest), 0o644); err != nil {
 		return "", err
 	}
-	// Keep a tree a concurrent installer published meanwhile: Windows cannot
-	// remove its running executable. Otherwise replace an incomplete tree.
-	if installed(marker, exePath) {
-		return exePath, nil
-	}
+	// Replace an incomplete tree.
 	if err := os.RemoveAll(dir); err != nil {
 		return "", err
 	}
-	if err := os.Rename(tree, dir); err != nil && !installed(marker, exePath) {
+	if err := os.Rename(tree, dir); err != nil {
 		return "", err
 	}
 	return exePath, nil

@@ -17,7 +17,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 import numpy as np
+from huggingface_hub import hf_hub_download, snapshot_download
 from kittenml import KittenTTS, KittenTTS2
+from kittenml.get_model import _kitten2_files
 
 
 @dataclass(frozen=True)
@@ -131,6 +133,15 @@ def write_control(message: dict[str, Any]) -> None:
     sys.stdout.flush()
 
 
+def download(model: str, revision: str, cache_dir: str) -> str:
+    # KittenTTS takes no revision and downloads a repository ID from main, but
+    # loads a local directory. Fetch the files it would select at revision; the
+    # private selection helper is stable under the pinned kittenml.
+    with open(hf_hub_download(model, "config.json", revision=revision, cache_dir=cache_dir)) as f:
+        config = json.load(f)
+    return snapshot_download(model, revision=revision, cache_dir=cache_dir, allow_patterns=_kitten2_files(config))
+
+
 def exit_on_stdin_eof() -> None:
     # EOF ends the worker even if only the uv launcher is killed.
     sys.stdin.buffer.read()
@@ -141,9 +152,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Run the genaipy KittenTTS HTTP worker.")
     parser.add_argument("--cache-dir", required=True, help="Directory for Hugging Face model cache.")
     parser.add_argument("--model", required=True, help="KittenTTS Hugging Face model ID.")
+    parser.add_argument("--revision", required=True, help="Hugging Face commit of the model.")
     args = parser.parse_args()
 
-    Handler.model = KittenTTS(args.model, cache_dir=args.cache_dir, device="cpu")
+    local_dir = download(args.model, args.revision, args.cache_dir)
+    Handler.model = KittenTTS(local_dir, cache_dir=args.cache_dir, device="cpu")
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     host, port = server.server_address
     threading.Thread(target=exit_on_stdin_eof, daemon=True).start()

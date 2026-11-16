@@ -20,20 +20,21 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
+
+	"github.com/maruel/genai"
+	"github.com/maruel/genai/base"
 )
+
+var _ genai.Server = (*Server)(nil)
 
 // Server owns a Python backend process. Its lifetime is bounded by the context
 // passed to NewServer or by Close.
 type Server struct {
-	URL string
-
+	url    string
 	cancel context.CancelFunc
-	done   <-chan error
-	exited <-chan struct{}
-	mu     sync.Mutex
-	err    error
+	done   chan struct{}
+	err    error // Written before done closes.
 }
 
 // NewServer prepares a Python virtualenv and starts llm.py or image_gen.py.
@@ -89,22 +90,12 @@ func NewServer(ctx context.Context, script, cacheDir, logName string, extraArgs 
 		cancel()
 		return nil, errors.Join(fmt.Errorf("failed to start Python: %w", err), log.Close())
 	}
-	done := make(chan error, 1)
-	exited := make(chan struct{})
-	s := &Server{URL: "http://127.0.0.1:" + port, cancel: cancel, done: done, exited: exited}
+	s := &Server{url: "http://127.0.0.1:" + port, cancel: cancel, done: make(chan struct{})}
 	go func() {
-		err := cmd.Wait()
-		if procCtx.Err() != nil {
-			// CommandContext terminates the child on cancellation.
-			err = nil
-		}
-		err = errors.Join(err, log.Close())
-		s.mu.Lock()
-		s.err = err
-		s.mu.Unlock()
-		done <- err
-		close(done)
-		close(exited)
+		// CommandContext kills the child on cancellation.
+		err := base.ServerExit(cmd.Wait(), cmd.ProcessState, procCtx.Err() != nil, os.Kill)
+		s.err = errors.Join(err, log.Close())
+		close(s.done)
 	}()
 	hc := &http.Client{Timeout: time.Second, Transport: &http.Transport{Proxy: nil}}
 	defer hc.CloseIdleConnections()
@@ -112,10 +103,8 @@ func NewServer(ctx context.Context, script, cacheDir, logName string, extraArgs 
 	defer ticker.Stop()
 	for {
 		select {
-		case <-exited:
-			s.mu.Lock()
+		case <-s.done:
 			err = s.err
-			s.mu.Unlock()
 			cancel()
 			if err == nil {
 				err = errors.New("process exited early; look at logs to diagnose")
@@ -124,7 +113,7 @@ func NewServer(ctx context.Context, script, cacheDir, logName string, extraArgs 
 		case <-readyCtx.Done():
 			return nil, errors.Join(readyCtx.Err(), s.Close())
 		case <-ticker.C:
-			req, err := http.NewRequestWithContext(readyCtx, http.MethodGet, s.URL+"/health", http.NoBody)
+			req, err := http.NewRequestWithContext(readyCtx, http.MethodGet, s.url+"/health", http.NoBody)
 			if err != nil {
 				return nil, errors.Join(err, s.Close())
 			}
@@ -145,19 +134,28 @@ func NewServer(ctx context.Context, script, cacheDir, logName string, extraArgs 
 	}
 }
 
-// Close stops the process and waits for cleanup. It reports an unexpected exit
-// even if its result has already been received from Done.
+// Close implements genai.Server.
 func (s *Server) Close() error {
 	s.cancel()
-	<-s.exited
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	<-s.done
 	return s.err
 }
 
-// Done reports the process exit result once, then closes. Receiving from Done
-// does not prevent Close from waiting for cleanup or reporting an error.
-func (s *Server) Done() <-chan error { return s.done }
+// URL implements genai.Server.
+func (s *Server) URL() string { return s.url }
+
+// Done implements genai.Server.
+func (s *Server) Done() <-chan struct{} { return s.done }
+
+// Err implements genai.Server.
+func (s *Server) Err() error {
+	select {
+	case <-s.done:
+		return s.err
+	default:
+		return nil
+	}
+}
 
 var (
 	//go:embed image_gen.py

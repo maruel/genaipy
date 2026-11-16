@@ -33,9 +33,10 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
+	"github.com/maruel/genai"
+	"github.com/maruel/genai/base"
 	"github.com/maruel/genaipy/internal/release"
 	"github.com/maruel/genaipy/providers/nemospeech"
 )
@@ -61,6 +62,8 @@ const (
 	Vulkan Backend = "vulkan"
 )
 
+var _ genai.Server = (*Server)(nil)
+
 // Server owns a NeMo-Speech.cpp server process.
 type Server struct {
 	url    string
@@ -85,7 +88,7 @@ func New(ctx context.Context, exe string, model nemospeech.Model) (*Server, erro
 	}
 	// The process binds the port after loading the model; another process can
 	// take it meanwhile, which fails startup with a bind error.
-	base := "http://127.0.0.1:" + port
+	u := "http://127.0.0.1:" + port
 	client := &http.Client{Transport: &http.Transport{Proxy: nil}}
 	procCtx, cancel := context.WithCancel(ctx)
 	cmd := exec.CommandContext(procCtx, exe, "serve", "--asr-model", string(model), "--host", "127.0.0.1", "--port", port, "--no-ui") // #nosec G204 -- The executable comes from the verified release; arguments use no shell.
@@ -106,13 +109,11 @@ func New(ctx context.Context, exe string, model nemospeech.Model) (*Server, erro
 		cancel()
 		return nil, fmt.Errorf("nemospeechsrv: start: %w", err)
 	}
-	s := &Server{url: base, cancel: cancel, done: make(chan struct{})}
+	s := &Server{url: u, cancel: cancel, done: make(chan struct{})}
 	go func() {
-		err := cmd.Wait()
-		if procCtx.Err() != nil && requestedExit(cmd.ProcessState) {
-			err = nil
-		}
-		s.err = err
+		// "nemo-speech serve" stops on SIGINT or SIGTERM and returns 0; one that
+		// outlives WaitDelay is killed, which is reported.
+		s.err = base.ServerExit(cmd.Wait(), cmd.ProcessState, procCtx.Err() != nil, os.Interrupt)
 		client.CloseIdleConnections()
 		close(s.done)
 	}()
@@ -126,7 +127,7 @@ func New(ctx context.Context, exe string, model nemospeech.Model) (*Server, erro
 		case <-ctx.Done():
 			return nil, errors.Join(ctx.Err(), s.Close())
 		case <-ticker.C:
-			if ready(procCtx, client, base) {
+			if ready(procCtx, client, u) {
 				return s, nil
 			}
 		}
@@ -145,9 +146,23 @@ func (s *Server) Close() error {
 	return s.err
 }
 
+// Done implements genai.Server.
+func (s *Server) Done() <-chan struct{} { return s.done }
+
+// Err implements genai.Server.
+func (s *Server) Err() error {
+	select {
+	case <-s.done:
+		return s.err
+	default:
+		return nil
+	}
+}
+
 // Download installs the release build for backend into cacheDir unless it is
-// already there, and returns its executable. Empty backend selects Metal on
-// macOS arm64, CUDA on Windows arm64, and CPU elsewhere.
+// already there, and returns its executable. Concurrent callers for one
+// cacheDir, in this process or others, wait for a single install. Empty backend
+// selects Metal on macOS arm64, CUDA on Windows arm64, and CPU elsewhere.
 func Download(ctx context.Context, cacheDir string, backend Backend) (string, error) {
 	if !filepath.IsAbs(cacheDir) {
 		return "", errors.New("nemospeechsrv: cache directory must be an absolute path")
@@ -200,8 +215,8 @@ func releaseURL(backend Backend) (string, error) {
 
 // ready reports whether GET /ready succeeds. The server answers 503 until an
 // engine is ready and refuses connections until it binds.
-func ready(ctx context.Context, client *http.Client, base string) bool {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/ready", http.NoBody)
+func ready(ctx context.Context, client *http.Client, u string) bool {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u+"/ready", http.NoBody)
 	if err != nil {
 		return false
 	}
@@ -214,18 +229,6 @@ func ready(ctx context.Context, client *http.Client, base string) bool {
 		Ready bool `json:"ready"`
 	}
 	return resp.StatusCode == http.StatusOK && json.NewDecoder(resp.Body).Decode(&r) == nil && r.Ready
-}
-
-// requestedExit reports whether the process ended as Close requested.
-func requestedExit(ps *os.ProcessState) bool {
-	if ps == nil {
-		return false
-	}
-	if ps.Success() || runtime.GOOS == "windows" {
-		return true
-	}
-	ws, ok := ps.Sys().(syscall.WaitStatus)
-	return ok && ws.Signaled() && ws.Signal() == os.Interrupt
 }
 
 // serverEnv drops NEMO_SPEECH_HTTP_* settings, which would override the

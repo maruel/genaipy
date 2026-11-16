@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"slices"
 
+	"github.com/maruel/genai"
 	"github.com/maruel/genaipy/internal/uv"
 	"github.com/maruel/genaipy/internal/worker"
 	"github.com/maruel/genaipy/providers/kittentts"
@@ -46,6 +47,8 @@ type Config struct {
 	CacheDir string
 }
 
+var _ genai.Server = (*Server)(nil)
+
 // Server owns a KittenTTS worker process producing kittentts.SampleRate PCM.
 type Server struct {
 	p   *worker.Process
@@ -53,8 +56,9 @@ type Server struct {
 }
 
 // New starts the worker, installing the pinned uv and its pinned Python
-// package if needed. Startup downloads the model when it is absent from the
-// cache. ctx owns the worker lifetime; call Close when finished.
+// package if needed. Startup downloads the model at kittentts.Revision when it
+// is absent from the cache. ctx owns the worker lifetime; call Close when
+// finished.
 func New(ctx context.Context, cfg Config) (*Server, error) {
 	cfg, err := normalizeConfig(cfg)
 	if err != nil {
@@ -70,9 +74,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	return start(ctx, cfg, func(ctx context.Context) *exec.Cmd { return command(ctx, uvExe, cfg) })
 }
 
-// start waits for the worker to load every voice kittentts.Voices lists: the
-// worker downloads the model's latest Hugging Face revision, whose voices may
-// differ from the listed revision's.
+// start waits for the worker to load every voice kittentts.Voices lists.
 func start(ctx context.Context, cfg Config, newCmd func(context.Context) *exec.Cmd) (*Server, error) {
 	want, err := kittentts.Voices(cfg.Model)
 	if err != nil {
@@ -97,10 +99,6 @@ func start(ctx context.Context, cfg Config, newCmd func(context.Context) *exec.C
 		if r.SampleRate != kittentts.SampleRate {
 			return fmt.Errorf("sample rate %d, want %d", r.SampleRate, kittentts.SampleRate)
 		}
-		// The worker loads the model from Hugging Face main, not the revision
-		// kittentts.Voices was read from: the pinned KittenTTS takes no
-		// revision. A voice renamed upstream fails here. Pinning would need the
-		// worker to download a revision itself and pass KittenTTS that directory.
 		for _, v := range want {
 			if !slices.Contains(r.Voices, v.Name) {
 				return fmt.Errorf("%s has no voice %s", cfg.Model, v.Name)
@@ -121,8 +119,14 @@ func (s *Server) URL() string { return s.url }
 // Close stops the worker and reports an unexpected exit. It is idempotent.
 func (s *Server) Close() error { return s.p.Close() }
 
+// Done implements genai.Server.
+func (s *Server) Done() <-chan struct{} { return s.p.Done() }
+
+// Err implements genai.Server.
+func (s *Server) Err() error { return s.p.Err() }
+
 func command(ctx context.Context, uvExe string, cfg Config) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, uvExe, "run", "--isolated", "--python", pythonVersion, "--with", kittenTTSPackage, "python", "-u", "-c", script, "--cache-dir", cfg.CacheDir, "--model", cfg.Model)
+	cmd := exec.CommandContext(ctx, uvExe, "run", "--isolated", "--python", pythonVersion, "--with", kittenTTSPackage, "python", "-u", "-c", script, "--cache-dir", cfg.CacheDir, "--model", cfg.Model, "--revision", kittentts.Revision)
 	cmd.Dir = cfg.CacheDir
 	// Keep model download progress out of logs without hiding warnings or errors.
 	cmd.Env = append(cmd.Environ(), "HF_HUB_DISABLE_PROGRESS_BARS=1")

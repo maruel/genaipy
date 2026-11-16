@@ -4,7 +4,8 @@ go 1.27.3
 
 require (
 	github.com/coder/websocket v1.8.15
-	github.com/maruel/genai v0.11.2
+	github.com/gofrs/flock v0.13.1
+	github.com/maruel/genai v0.11.3-0.20261116221713-bc5e40e15f41
 	golang.org/x/text v0.42.0
 )
 
@@ -18,4 +19,5 @@ require (
 	github.com/maruel/roundtrippers v0.5.1 // indirect
 	github.com/pb33f/go-yaml v0.1.1 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.2 // indirect
+	golang.org/x/sys v0.49.0 // indirect
 )

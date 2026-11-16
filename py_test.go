@@ -119,7 +119,7 @@ func TestServer(t *testing.T) {
 				t.Error(err)
 			}
 		})
-		client, err := openaicompatible.New(ctx, genai.ProviderOptionRemote(srv.URL+"/v1/chat/completions"))
+		client, err := openaicompatible.New(ctx, genai.ProviderOptionRemote(srv.URL()+"/v1/chat/completions"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -144,7 +144,7 @@ func TestServer(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = srv.Close() })
-		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"/exit", http.NoBody)
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL()+"/exit", http.NoBody)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -155,15 +155,15 @@ func TestServer(t *testing.T) {
 			}
 		}
 		select {
-		case err := <-srv.Done():
-			if err == nil {
+		case <-srv.Done():
+			if srv.Err() == nil {
 				t.Fatal("unexpected exit succeeded")
 			}
 		case <-time.After(5 * time.Second):
 			t.Fatal("process was not reaped")
 		}
 		if err := srv.Close(); err == nil {
-			t.Fatal("Close lost the error after Done was read")
+			t.Fatal("Close lost the error after Done was observed")
 		}
 	})
 }
@@ -226,8 +226,8 @@ func TestNewServer(t *testing.T) {
 		})
 		cancel()
 		select {
-		case err := <-srv.Done():
-			if err != nil {
+		case <-srv.Done():
+			if err := srv.Err(); err != nil {
 				t.Fatal(err)
 			}
 		case <-time.After(5 * time.Second):
@@ -287,7 +287,7 @@ func TestModelSmoke(t *testing.T) {
 			t.Error(err)
 		}
 	})
-	client, err := openaicompatible.New(ctx, genai.ProviderOptionRemote(srv.URL+"/v1/chat/completions"))
+	client, err := openaicompatible.New(ctx, genai.ProviderOptionRemote(srv.URL()+"/v1/chat/completions"))
 	if err != nil {
 		t.Fatal(err)
 	}

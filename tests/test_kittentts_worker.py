@@ -11,6 +11,7 @@ import io
 import json
 import pathlib
 import sys
+import tempfile
 import threading
 import types
 import unittest
@@ -58,10 +59,24 @@ def load_worker():
     kitten = types.ModuleType("kittenml")
     kitten.KittenTTS = FakeModel
     kitten.KittenTTS2 = FakeModel
+    get_model = types.ModuleType("kittenml.get_model")
+    get_model._kitten2_files = lambda config: sorted(config["files"])
+    hub = types.ModuleType("huggingface_hub")
+    hub.hf_hub_download = None
+    hub.snapshot_download = None
     path = pathlib.Path(__file__).resolve().parents[1] / "providers" / "kittentts" / "kittenttssrv" / "worker.py"
     spec = importlib.util.spec_from_file_location("genaipy_test_kitten_worker", path)
     module = importlib.util.module_from_spec(spec)
-    with mock.patch.dict(sys.modules, {"numpy": numpy, "kittenml": kitten, spec.name: module}):
+    with mock.patch.dict(
+        sys.modules,
+        {
+            "numpy": numpy,
+            "huggingface_hub": hub,
+            "kittenml": kitten,
+            "kittenml.get_model": get_model,
+            spec.name: module,
+        },
+    ):
         spec.loader.exec_module(module)
     return module
 
@@ -154,20 +169,35 @@ class WorkerTest(unittest.TestCase):
                 worker.Request.from_json(raw)
 
     def test_configured_model(self):
+        config = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory())) / "config.json"
+        config.write_text(json.dumps({"files": ["lm/*", "config.json"]}))
         server = mock.Mock()
         server.server_address = ("127.0.0.1", 8765)
         model = FakeModel()
         model.sample_rate = 48000
         output = io.StringIO()
         with (
-            mock.patch.object(sys, "argv", ["worker.py", "--model", "owner/model", "--cache-dir", "/tmp/owner/cache"]),
+            mock.patch.object(
+                sys,
+                "argv",
+                ["worker.py", "--model", "owner/model", "--revision", "0123abcd", "--cache-dir", "/tmp/owner/cache"],
+            ),
+            mock.patch.object(worker, "hf_hub_download", return_value=str(config)) as get_config,
+            mock.patch.object(worker, "snapshot_download", return_value="/tmp/owner/snapshot") as snapshot,
             mock.patch.object(worker, "KittenTTS", return_value=model) as factory,
             mock.patch.object(worker, "ThreadingHTTPServer", return_value=server),
             mock.patch.object(worker.threading, "Thread"),
             contextlib.redirect_stdout(output),
         ):
             self.assertEqual(worker.main(), 0)
-        factory.assert_called_once_with("owner/model", cache_dir="/tmp/owner/cache", device="cpu")
+        # Both downloads are pinned; KittenTTS itself would fetch main.
+        get_config.assert_called_once_with(
+            "owner/model", "config.json", revision="0123abcd", cache_dir="/tmp/owner/cache"
+        )
+        snapshot.assert_called_once_with(
+            "owner/model", revision="0123abcd", cache_dir="/tmp/owner/cache", allow_patterns=["config.json", "lm/*"]
+        )
+        factory.assert_called_once_with("/tmp/owner/snapshot", cache_dir="/tmp/owner/cache", device="cpu")
         ready = json.loads(output.getvalue())
         self.assertEqual(ready["sample_rate"], 48000)
         self.assertEqual(ready["voices"], ["Luna"])

@@ -2,7 +2,7 @@
 // Use of this source code is governed under the Apache License, Version 2.0
 // that can be found in the LICENSE file.
 
-// Tests for release download verification, archive safety and install reuse.
+// Tests for release download verification, archive safety, install reuse and locking.
 
 package release
 
@@ -11,16 +11,22 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/gofrs/flock"
 )
 
 type entry struct {
@@ -133,6 +139,38 @@ func TestInstall(t *testing.T) {
 				t.Errorf("staging files left: %q", leftovers)
 			}
 		})
+		t.Run("concurrent", func(t *testing.T) {
+			t.Parallel()
+			archive := tarGz(t, entry{name: "ns-4/bin/tool", body: "exe"})
+			u, requests := serve(t, "ns-4.tar.gz", archive, digestOf(archive))
+			dir := filepath.Join(t.TempDir(), "ns-4")
+			const n = 8
+			var exes [n]string
+			var wg sync.WaitGroup
+			for i := range n {
+				wg.Go(func() {
+					exe, err := Install(t.Context(), http.DefaultClient, u, "ns-4", dir, "bin/tool")
+					if err != nil {
+						t.Error(err)
+					}
+					exes[i] = exe
+				})
+			}
+			wg.Wait()
+			// One installer fetched the checksum and the archive; the others
+			// waited for its tree.
+			if n := requests.Load(); n != 2 {
+				t.Errorf("requests = %d, want 2", n)
+			}
+			for _, exe := range exes {
+				if exe != exes[0] {
+					t.Fatalf("exes = %q", exes)
+				}
+			}
+			if b, err := os.ReadFile(exes[0]); err != nil || string(b) != "exe" {
+				t.Fatalf("exe = %q, %v", b, err)
+			}
+		})
 		t.Run("zip without root", func(t *testing.T) {
 			t.Parallel()
 			archive := zipArchive(t, entry{name: "tool", body: "exe"}, entry{name: "other", body: "x"})
@@ -213,8 +251,28 @@ func TestInstall(t *testing.T) {
 			if _, err := Install(t.Context(), http.DefaultClient, u, "ns", filepath.Join(cache, "ns"), "bin/tool"); err == nil || !strings.Contains(err.Error(), "SHA-256") {
 				t.Fatalf("error = %v", err)
 			}
-			if entries, _ := os.ReadDir(cache); len(entries) != 0 {
-				t.Errorf("cache not empty: %v", entries)
+			// The lock file stays: removing it would let a waiter hold a lock
+			// on an unlinked file while a newcomer locks a new one.
+			if entries, _ := os.ReadDir(cache); len(entries) != 1 || entries[0].Name() != "ns.lock" {
+				t.Errorf("cache = %v, want only the lock", entries)
+			}
+		})
+		t.Run("canceled while another installer holds the lock", func(t *testing.T) {
+			t.Parallel()
+			u, requests := serve(t, "ns.tar.gz", nil, "")
+			dir := filepath.Join(t.TempDir(), "ns")
+			held := flock.New(dir + ".lock")
+			if err := held.Lock(); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = held.Close() })
+			ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+			t.Cleanup(cancel)
+			if _, err := Install(ctx, http.DefaultClient, u, "ns", dir, "bin/tool"); !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("error = %v", err)
+			}
+			if n := requests.Load(); n != 0 {
+				t.Errorf("requests = %d, want 0", n)
 			}
 		})
 		t.Run("malformed checksum", func(t *testing.T) {

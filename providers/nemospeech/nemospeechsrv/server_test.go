@@ -63,6 +63,10 @@ func fakeServe(mode string, args []string) int {
 			return
 		}
 		_, _ = w.Write([]byte(`{"capabilities":["asr"],"ready":true}`))
+		if mode == "crash" {
+			_ = http.NewResponseController(w).Flush()
+			os.Exit(5)
+		}
 	})
 	mux.HandleFunc("POST /v1/audio/transcriptions", func(w http.ResponseWriter, r *http.Request) {
 		form, err := r.MultipartReader()
@@ -128,8 +132,26 @@ func TestServer(t *testing.T) {
 		if err := s.Close(); err != nil {
 			t.Fatalf("Close = %v", err)
 		}
+		<-s.Done()
+		if err := s.Err(); err != nil {
+			t.Errorf("Err after Close = %v", err)
+		}
 		if _, err := transcribe(t, c); err == nil {
 			t.Error("transcribed after Close")
+		}
+	})
+	t.Run("exit after ready", func(t *testing.T) {
+		t.Setenv("NEMOSPEECH_FAKE", "crash")
+		s, err := New(t.Context(), exe, nemospeech.ParakeetTDT)
+		if err != nil {
+			t.Fatal(err)
+		}
+		<-s.Done()
+		if err := s.Err(); err == nil || !strings.Contains(err.Error(), "exit status 5") {
+			t.Errorf("Err = %v", err)
+		}
+		if err := s.Close(); err == nil {
+			t.Error("Close did not report the unexpected exit")
 		}
 	})
 	t.Run("error", func(t *testing.T) {

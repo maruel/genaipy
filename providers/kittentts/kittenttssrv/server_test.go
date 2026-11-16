@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -86,8 +87,8 @@ func TestCommand(t *testing.T) { //nolint:paralleltest // t.Setenv redirects os.
 	if cmd.Dir != want {
 		t.Errorf("cmd.Dir = %q, want %q", cmd.Dir, want)
 	}
-	if n := len(cmd.Args); n < 2 || cmd.Args[n-2] != "--model" || cmd.Args[n-1] != DefaultModel {
-		t.Errorf("model argument missing: %v", cmd.Args)
+	if n := len(cmd.Args); n < 4 || !slices.Equal(cmd.Args[n-4:], []string{"--model", DefaultModel, "--revision", kittentts.Revision}) {
+		t.Errorf("model and revision arguments missing: %v", cmd.Args)
 	}
 }
 
