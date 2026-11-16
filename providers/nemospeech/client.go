@@ -37,6 +37,24 @@ import (
 // language support of each model is declared here from its model card.
 type Model string
 
+// Languages returns the sorted ISO 639 base languages that m transcribes,
+// from its model card; ConnectRealtime rejects another input language. It
+// returns nil for a model New rejects.
+//
+// Immutable: callers share the result.
+func (m Model) Languages() []string {
+	switch m {
+	case NemotronASR:
+		return nemotronLanguages
+	case NemotronASREnglish, ParakeetCTC:
+		return englishLanguages
+	case ParakeetTDT:
+		return parakeetTDTLanguages
+	default:
+		return nil
+	}
+}
+
 const (
 	// NemotronASR is nvidia/nemotron-3.5-asr-streaming-0.6b. A language selects
 	// its closest language-ID prompt among the 32 transcription-ready and
@@ -58,6 +76,11 @@ const (
 	// spoken language.
 	ParakeetTDT Model = "parakeet-tdt"
 )
+
+// Models are the models New accepts.
+//
+// Immutable.
+var Models = []Model{NemotronASR, NemotronASREnglish, ParakeetCTC, ParakeetTDT}
 
 // Client transcribes mono S16LE PCM through a NeMo-Speech.cpp server in
 // genai transcription sessions; other provider methods return
@@ -82,24 +105,13 @@ func New(client *http.Client, remote string, model Model) (*Client, error) {
 		return nil, err
 	}
 	r := &Client{client: client, remote: strings.TrimRight(remote, "/"), model: model}
-	switch model {
-	case NemotronASR:
-		// Locales of the transcription-ready and broad-coverage tiers in the
-		// nvidia/nemotron-3.5-asr-streaming-0.6b model card.
-		r.lang = localeLanguages(
-			"en-US", "en-GB", "es-US", "es-ES", "fr-FR", "fr-CA", "it-IT", "pt-BR",
-			"pt-PT", "nl-NL", "de-DE", "tr-TR", "ru-RU", "ar-AR", "hi-IN", "ja-JP",
-			"ko-KR", "vi-VN", "uk-UA", "pl-PL", "sv-SE", "cs-CZ", "nb-NO", "da-DK",
-			"bg-BG", "fi-FI", "hr-HR", "sk-SK", "zh-CN", "hu-HU", "ro-RO", "et-EE")
-	case NemotronASREnglish, ParakeetCTC:
-		r.lang = detectedLanguages("en")
-	case ParakeetTDT:
-		// Supported languages in the nvidia/parakeet-tdt-0.6b-v3 model card.
-		r.lang = detectedLanguages(
-			"bg", "cs", "da", "de", "el", "en", "es", "et", "fi", "fr", "hr", "hu", "it",
-			"lt", "lv", "mt", "nl", "pl", "pt", "ro", "ru", "sk", "sl", "sv", "uk")
-	default:
+	switch langs := model.Languages(); {
+	case langs == nil:
 		return nil, fmt.Errorf("unsupported NeMo-Speech model %q", model)
+	case model == NemotronASR:
+		r.lang = localeLanguages(nemotronLocales...)
+	default:
+		r.lang = detectedLanguages(langs...)
 	}
 	return r, nil
 }

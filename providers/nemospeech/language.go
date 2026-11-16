@@ -14,6 +14,37 @@ import (
 	"golang.org/x/text/language"
 )
 
+// nemotronLocales are the transcription-ready and broad-coverage locales in the
+// nvidia/nemotron-3.5-asr-streaming-0.6b model card.
+var nemotronLocales = []string{
+	"en-US", "en-GB", "es-US", "es-ES", "fr-FR", "fr-CA", "it-IT", "pt-BR",
+	"pt-PT", "nl-NL", "de-DE", "tr-TR", "ru-RU", "ar-AR", "hi-IN", "ja-JP",
+	"ko-KR", "vi-VN", "uk-UA", "pl-PL", "sv-SE", "cs-CZ", "nb-NO", "da-DK",
+	"bg-BG", "fi-FI", "hr-HR", "sk-SK", "zh-CN", "hu-HU", "ro-RO", "et-EE",
+}
+
+// nemotronLanguages are the base languages of nemotronLocales and "no", the
+// Norwegian macrolanguage that the locale matcher resolves to nb-NO.
+var nemotronLanguages = func() []string {
+	out := make([]string, 0, len(nemotronLocales)+1)
+	out = append(out, "no")
+	for _, l := range nemotronLocales {
+		b, _ := language.MustParse(l).Base()
+		out = append(out, b.String())
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}()
+
+var englishLanguages = []string{"en"}
+
+// parakeetTDTLanguages are the supported languages in the
+// nvidia/parakeet-tdt-0.6b-v3 model card.
+var parakeetTDTLanguages = []string{
+	"bg", "cs", "da", "de", "el", "en", "es", "et", "fi", "fr", "hr", "hu", "it",
+	"lt", "lv", "mt", "nl", "pl", "pt", "ro", "ru", "sk", "sl", "sv", "uk",
+}
+
 // languageMapper resolves a spoken language to the value a request carries.
 //
 // language.Und resolves to "" for every model: the model chooses. A supported

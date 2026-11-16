@@ -29,6 +29,13 @@ import (
 // weights.
 const DefaultModel = "Cactus-Compute/whistle"
 
+// Languages are the sorted ISO 639 base languages in the
+// Cactus-Compute/whistle model card. Whistle detects the spoken language, and
+// ConnectRealtime rejects another input language.
+//
+// Immutable.
+var Languages = []string{"de", "en", "es", "fr", "it", "nl", "pl"}
+
 // Client is a genai.Provider whose ConnectRealtime opens transcription
 // sessions; other provider methods return base.ErrNotSupported.
 type Client struct {
@@ -60,9 +67,8 @@ func New(client *http.Client, remote, model string) (*Client, error) {
 // ConnectRealtime implements genai.Provider. It requires
 // genai.RealtimeOptionTranscription and transcribes one utterance of 16 kHz
 // PCM, buffering up to 10 minutes until Commit; it yields no drafts. Whistle
-// has no language input and detects the languages listed in the
-// Cactus-Compute/whistle model card, so RealtimeOptionAudio.InputLanguage is
-// only checked against them; another is base.ErrNotSupported.
+// has no language input, so RealtimeOptionAudio.InputLanguage is only checked
+// against Languages; another is base.ErrNotSupported.
 func (w *Client) ConnectRealtime(_ context.Context, opts ...genai.RealtimeOption) (genai.RealtimeSession, error) {
 	transcription := false
 	var unsupported []string
@@ -89,7 +95,7 @@ func (w *Client) ConnectRealtime(_ context.Context, opts ...genai.RealtimeOption
 			if o.InputLanguage != "" {
 				// Validate parsed it.
 				b, _ := language.MustParse(o.InputLanguage).Base()
-				if !slices.Contains(languages, b.String()) {
+				if !slices.Contains(Languages, b.String()) {
 					unsupported = append(unsupported, "input language "+o.InputLanguage)
 				}
 			}
@@ -135,10 +141,6 @@ func (w *Client) Close() error { return nil }
 
 // sampleRate is Whistle's only input rate.
 const sampleRate = 16000
-
-// languages are the ISO 639 base languages in the Cactus-Compute/whistle model
-// card.
-var languages = []string{"de", "en", "es", "fr", "it", "nl", "pl"}
 
 // transcribe recognizes complete 16 kHz PCM. Long clips are split into
 // 30-second windows. Cancelling a request leaves the worker available.

@@ -12,6 +12,7 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -175,6 +176,32 @@ func readForm(t *testing.T, w http.ResponseWriter, r *http.Request) map[string]s
 		}
 		fields[part.FormName()] = string(data)
 	}
+}
+
+func TestModel(t *testing.T) {
+	t.Parallel()
+	t.Run("Languages", func(t *testing.T) {
+		t.Parallel()
+		for _, m := range Models {
+			a, err := New(http.DefaultClient, "http://127.0.0.1:1", m)
+			if err != nil {
+				t.Fatal(err)
+			}
+			langs := m.Languages()
+			if len(langs) == 0 || !slices.IsSorted(langs) {
+				t.Errorf("%s languages %q, want a sorted nonempty list", m, langs)
+			}
+			// Each declared language is one the session accepts.
+			for _, l := range langs {
+				if _, err := a.lang(language.MustParse(l)); err != nil {
+					t.Errorf("%s %s: %v", m, l, err)
+				}
+			}
+		}
+		if langs := Model("nemotron-x").Languages(); langs != nil {
+			t.Errorf("unknown model languages %q, want nil", langs)
+		}
+	})
 }
 
 func TestNew(t *testing.T) {
