@@ -85,6 +85,9 @@ func NewServer(ctx context.Context, script, cacheDir, logName string, extraArgs 
 	procCtx, cancel := context.WithCancel(ctx)
 	cmd := exec.CommandContext(procCtx, filepath.Join(cacheDir, "venv", bin, exe), args...)
 	cmd.Dir = cacheDir
+	// UTF-8 mode makes open() and stdio default to UTF-8 instead of the Windows
+	// ANSI code page.
+	cmd.Env = append(cmd.Environ(), "PYTHONUTF8=1")
 	cmd.Stdout, cmd.Stderr = log, log
 	if err = cmd.Start(); err != nil {
 		cancel()

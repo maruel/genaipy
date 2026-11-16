@@ -43,7 +43,9 @@ func New(ctx context.Context, model string) (*Server, error) {
 	}
 	return start(ctx, func(ctx context.Context) *exec.Cmd {
 		cmd := exec.CommandContext(ctx, uvExe, "run", "--isolated", "--no-project", "--python", "3.12", "--with", "cactus-needle==3.1.0", "python", "-u", "-c", script, "--model", model)
-		cmd.Env = append(os.Environ(), "NEEDLE_TELEMETRY=0", "DO_NOT_TRACK=1")
+		// UTF-8 mode makes open() and stdio default to UTF-8 instead of the
+		// Windows ANSI code page.
+		cmd.Env = append(os.Environ(), "NEEDLE_TELEMETRY=0", "DO_NOT_TRACK=1", "PYTHONUTF8=1")
 		return cmd
 	})
 }

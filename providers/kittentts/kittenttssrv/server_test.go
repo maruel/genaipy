@@ -90,6 +90,10 @@ func TestCommand(t *testing.T) { //nolint:paralleltest // t.Setenv redirects os.
 	if n := len(cmd.Args); n < 4 || !slices.Equal(cmd.Args[n-4:], []string{"--model", DefaultModel, "--revision", kittentts.Revision}) {
 		t.Errorf("model and revision arguments missing: %v", cmd.Args)
 	}
+	// kittenml reads its voices JSON with the default encoding.
+	if !slices.Contains(cmd.Env, "PYTHONUTF8=1") {
+		t.Error("UTF-8 mode not enabled")
+	}
 }
 
 func isolatedCacheDir(t *testing.T) string {

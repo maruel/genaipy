@@ -128,8 +128,10 @@ func (s *Server) Err() error { return s.p.Err() }
 func command(ctx context.Context, uvExe string, cfg Config) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, uvExe, "run", "--isolated", "--python", pythonVersion, "--with", kittenTTSPackage, "python", "-u", "-c", script, "--cache-dir", cfg.CacheDir, "--model", cfg.Model, "--revision", kittentts.Revision)
 	cmd.Dir = cfg.CacheDir
-	// Keep model download progress out of logs without hiding warnings or errors.
-	cmd.Env = append(cmd.Environ(), "HF_HUB_DISABLE_PROGRESS_BARS=1")
+	// Keep model download progress out of logs without hiding warnings or
+	// errors. UTF-8 mode makes open() default to UTF-8 instead of the Windows
+	// ANSI code page: kittenml reads its voices JSON without an encoding.
+	cmd.Env = append(cmd.Environ(), "HF_HUB_DISABLE_PROGRESS_BARS=1", "PYTHONUTF8=1")
 	return cmd
 }
 

@@ -53,16 +53,30 @@ func Start(ctx context.Context, name string, newCmd func(context.Context) *exec.
 		cancel()
 		return nil, "", err
 	}
-	// An io.Pipe instead of StdoutPipe lets Wait finish copying before the
-	// reader sees EOF.
+	// An io.Pipe instead of StdoutPipe or StderrPipe lets Wait finish copying
+	// before the reader sees EOF.
 	rd, wr := io.Pipe()
-	cmd.Stdout = wr
-	cmd.Stderr = slog.NewLogLogger(slog.Default().Handler(), slog.LevelInfo).Writer()
+	erd, ewr := io.Pipe()
+	cmd.Stdout, cmd.Stderr = wr, ewr
 	if err := cmd.Start(); err != nil {
 		// Start already closed the stdin pipe.
 		cancel()
-		return nil, "", errors.Join(fmt.Errorf("%s: start: %w", name, err), rd.Close(), wr.Close())
+		return nil, "", errors.Join(fmt.Errorf("%s: start: %w", name, err), rd.Close(), wr.Close(), erd.Close(), ewr.Close())
 	}
+	// An unbuffered Python worker writes a traceback in fragments; one record
+	// per line keeps it readable.
+	go func() {
+		sc := bufio.NewScanner(erd)
+		for sc.Scan() {
+			slog.InfoContext(ctx, name, "stderr", sc.Text())
+		}
+		if err := sc.Err(); err != nil {
+			slog.WarnContext(ctx, name+" stderr", "err", err)
+			// Draining keeps the worker from blocking on a full pipe.
+			_, _ = io.Copy(io.Discard, erd)
+		}
+		_ = erd.Close()
+	}()
 	p := &Process{cancel: cancel, stdin: stdin, done: make(chan struct{})}
 	// The scanner reuses its buffer, so the line is copied.
 	lines := make(chan []byte, 1)
@@ -86,6 +100,7 @@ func Start(ctx context.Context, name string, newCmd func(context.Context) *exec.
 		// default; the worker exits on its own when stdin closes.
 		p.err = base.ServerExit(cmd.Wait(), cmd.ProcessState, procCtx.Err() != nil, os.Kill)
 		_ = wr.Close()
+		_ = ewr.Close()
 		close(p.done)
 	}()
 	stop := context.AfterFunc(procCtx, func() { _ = stdin.Close() })
