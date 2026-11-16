@@ -8,6 +8,7 @@ package kittenttssrv
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -28,7 +29,7 @@ import (
 
 func TestServer(t *testing.T) {
 	t.Parallel()
-	cfg, err := normalizeConfig(Config{CacheDir: t.TempDir()})
+	cfg, _, err := normalizeConfig(Config{CacheDir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,29 +71,36 @@ func TestServer(t *testing.T) {
 
 func TestCommand(t *testing.T) { //nolint:paralleltest // t.Setenv redirects os.UserCacheDir.
 	want := isolatedCacheDir(t)
-	if _, err := normalizeConfig(Config{CacheDir: "relative"}); err == nil {
+	if _, _, err := normalizeConfig(Config{CacheDir: "relative"}); err == nil {
 		t.Error("relative cache directory accepted")
 	}
-	if _, err := normalizeConfig(Config{Model: "KittenML/kitten-tts-2-nano"}); err == nil {
+	if _, _, err := normalizeConfig(Config{Model: "KittenML/kitten-tts-mini-0.8"}); err == nil {
 		t.Error("model without a voice catalog accepted")
 	}
-	cfg, err := normalizeConfig(Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	cmd := command(t.Context(), "/opt/uv", cfg)
-	if cmd.Path != "/opt/uv" {
-		t.Errorf("cmd.Path = %q, want /opt/uv", cmd.Path)
-	}
-	if cmd.Dir != want {
-		t.Errorf("cmd.Dir = %q, want %q", cmd.Dir, want)
-	}
-	if n := len(cmd.Args); n < 4 || !slices.Equal(cmd.Args[n-4:], []string{"--model", DefaultModel, "--revision", kittentts.Revision}) {
-		t.Errorf("model and revision arguments missing: %v", cmd.Args)
-	}
-	// kittenml reads its voices JSON with the default encoding.
-	if !slices.Contains(cmd.Env, "PYTHONUTF8=1") {
-		t.Error("UTF-8 mode not enabled")
+	for _, model := range []string{"", "KittenML/kitten-tts-2-nano"} {
+		cfg, revision, err := normalizeConfig(Config{Model: model})
+		if err != nil {
+			t.Fatal(err)
+		}
+		cmd := command(t.Context(), "/opt/uv", cfg, revision)
+		if cmd.Path != "/opt/uv" {
+			t.Errorf("cmd.Path = %q, want /opt/uv", cmd.Path)
+		}
+		if cmd.Dir != want {
+			t.Errorf("cmd.Dir = %q, want %q", cmd.Dir, want)
+		}
+		wantModel := cmp.Or(model, DefaultModel)
+		wantRevision, err := kittentts.Revision(wantModel)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n := len(cmd.Args); n < 4 || !slices.Equal(cmd.Args[n-4:], []string{"--model", wantModel, "--revision", wantRevision}) {
+			t.Errorf("model and revision arguments missing: %v", cmd.Args)
+		}
+		// kittenml reads its voices JSON with the default encoding.
+		if !slices.Contains(cmd.Env, "PYTHONUTF8=1") {
+			t.Error("UTF-8 mode not enabled")
+		}
 	}
 }
 

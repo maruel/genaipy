@@ -87,9 +87,11 @@ weights path. Telemetry is disabled.
 yields owned mono S16LE PCM chunks at `kittentts.SampleRate`, 24 kHz, in the
 voice given to `kittentts.New`, Jasper by default. `kittenttssrv.New(ctx,
 kittenttssrv.Config{})` runs the worker with the pinned `uv` and Python 3.12,
-pinning the `kittenml` package and using KittenTTS 2's streaming API on CPU.
-The default model is `KittenML/kitten-tts-2`, cached under the user's
-`genaipy/kittentts` cache directory. The worker reports inference failures as HTTP errors or
+pinning the `kittenml` package and using its streaming API on CPU. The default
+model is `KittenML/kitten-tts-2` (1.7B); `kittentts.Models` also lists the
+`kitten-tts-2-mini` (82M), `-nano` (17M per language) and `-pico` (7M per
+language) ONNX models. Each model loads at a pinned Hugging Face revision,
+cached under the user's `genaipy/kittentts` cache directory. The worker reports inference failures as HTTP errors or
 truncated streams.
 
 The Python workers download a pinned `uv` release, verified against its

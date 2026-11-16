@@ -11,6 +11,7 @@ import os
 import sys
 import threading
 import traceback
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -18,8 +19,10 @@ from typing import Any
 
 import numpy as np
 from huggingface_hub import hf_hub_download, snapshot_download
-from kittenml import KittenTTS, KittenTTS2
+from kittenml import KittenTTS
 from kittenml.get_model import _kitten2_files
+from kittenml.kittentts2_tiny.model import GAP_S
+from kittenml.repo import KITTEN2_TINY_TYPE
 
 
 @dataclass(frozen=True)
@@ -45,8 +48,42 @@ class Request:
         return cls(text=text, voice=voice, language=language)
 
 
+# Synthesizer streams the float audio chunks of a request.
+Synthesizer = Callable[[Request], Iterator[np.ndarray]]
+
+
+def kitten2_synthesizer(model: Any) -> Synthesizer:
+    """Speaks through KittenTTS 2, whose voice carries the language."""
+
+    def synthesize(request: Request) -> Iterator[np.ndarray]:
+        # The upstream normalizer is English-tuned; its documentation says to
+        # pass normalize=False for non-English text.
+        normalize = request.language in ("", "en")
+        return model.generate_stream(text=request.text, voice=request.voice, normalize=normalize)
+
+    return synthesize
+
+
+def tiny_synthesizer(model: Any) -> Synthesizer:
+    """Speaks through KittenTTS 2 nano, pico or mini in the request language.
+
+    Their generate_stream yields one chunk per sentence group; generate, which
+    this mirrors, separates the chunks with GAP_S of silence.
+    """
+    gap = np.zeros(int(GAP_S * model.sample_rate), dtype=np.float32)
+
+    def synthesize(request: Request) -> Iterator[np.ndarray]:
+        stream = model.generate_stream(text=request.text, voice=request.voice, language=request.language or "en")
+        for i, audio in enumerate(stream):
+            if i:
+                yield gap
+            yield audio
+
+    return synthesize
+
+
 class Handler(BaseHTTPRequestHandler):
-    model: KittenTTS2
+    synthesize: Synthesizer
     # Serialize the upstream model's generation state and reference cache.
     model_lock = threading.Lock()
     protocol_version = "HTTP/1.1"
@@ -63,10 +100,7 @@ class Handler(BaseHTTPRequestHandler):
 
         with self.model_lock:
             try:
-                # The upstream normalizer is English-tuned; its documentation
-                # says to pass normalize=False for non-English text.
-                normalize = request.language in ("", "en")
-                stream = self.model.generate_stream(text=request.text, voice=request.voice, normalize=normalize)
+                stream = iter(type(self).synthesize(request))
                 first_audio = next(stream, None)
             except Exception as exc:  # noqa: BLE001
                 self.send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
@@ -133,13 +167,43 @@ def write_control(message: dict[str, Any]) -> None:
     sys.stdout.flush()
 
 
-def download(model: str, revision: str, cache_dir: str) -> str:
+def download(model: str, revision: str, cache_dir: str) -> tuple[str, dict[str, Any]]:
     # KittenTTS takes no revision and downloads a repository ID from main, but
-    # loads a local directory. Fetch the files it would select at revision; the
-    # private selection helper is stable under the pinned kittenml.
+    # loads a local directory. Fetch the files it would select at revision.
     with open(hf_hub_download(model, "config.json", revision=revision, cache_dir=cache_dir)) as f:
         config = json.load(f)
-    return snapshot_download(model, revision=revision, cache_dir=cache_dir, allow_patterns=_kitten2_files(config))
+    if config.get("type") == KITTEN2_TINY_TYPE:
+        patterns = tiny_files(config)
+    else:
+        # The private selection helper is stable under the pinned kittenml.
+        patterns = _kitten2_files(config)
+    return snapshot_download(model, revision=revision, cache_dir=cache_dir, allow_patterns=patterns), config
+
+
+def tiny_files(config: dict[str, Any]) -> list[str]:
+    """The files a nano, pico or mini repository's ONNX runtime reads.
+
+    The repositories also hold float32 PyTorch weights, which the CPU ONNX
+    runtime does not load (kittentts2_tiny/model.py in the pinned kittenml).
+    """
+    g2p = config.get("g2p_dir", "g2p")
+    wanted = {"config.json", config.get("vocab", "vocab.json"), f"{g2p}/*", f"{g2p}/**"}
+    for entry in config["languages"].values():
+        wanted.update((entry["model_file"], entry["voices"]))
+    return sorted(wanted)
+
+
+def load(local_dir: str, config: dict[str, Any], cache_dir: str) -> tuple[Synthesizer, list[str], int]:
+    """Loads the model and returns its synthesizer, voice names and sample rate."""
+    model = KittenTTS(local_dir, cache_dir=cache_dir, device="cpu")
+    if config.get("type") != KITTEN2_TINY_TYPE:
+        return kitten2_synthesizer(model), model.available_voices, model.sample_rate
+    # The English front end loads its spaCy pipeline and G2P model on first
+    # use, about 10 s on CPU; pay it before reporting readiness.
+    if "en" in model.languages:
+        model.phonemize("Hello.", "en")
+    voices = sorted({name for names in model.available_voices.values() for name in names})
+    return tiny_synthesizer(model), voices, model.sample_rate
 
 
 def exit_on_stdin_eof() -> None:
@@ -155,8 +219,9 @@ def main() -> int:
     parser.add_argument("--revision", required=True, help="Hugging Face commit of the model.")
     args = parser.parse_args()
 
-    local_dir = download(args.model, args.revision, args.cache_dir)
-    Handler.model = KittenTTS(local_dir, cache_dir=args.cache_dir, device="cpu")
+    local_dir, config = download(args.model, args.revision, args.cache_dir)
+    synthesize, voices, sample_rate = load(local_dir, config, args.cache_dir)
+    Handler.synthesize = staticmethod(synthesize)
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     host, port = server.server_address
     threading.Thread(target=exit_on_stdin_eof, daemon=True).start()
@@ -164,8 +229,8 @@ def main() -> int:
         {
             "kind": "ready",
             "url": f"http://{host}:{port}",
-            "voices": Handler.model.available_voices,
-            "sample_rate": Handler.model.sample_rate,
+            "voices": voices,
+            "sample_rate": sample_rate,
         }
     )
     try:

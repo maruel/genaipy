@@ -8,6 +8,7 @@ package kittentts
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 )
 
@@ -22,27 +23,61 @@ type Voice struct {
 
 // Voices returns the built-in voices of model in name order.
 //
-// Only KittenML/kitten-tts-2 is supported. Its voice carries the language: the
-// model has no language argument, and an English voice reading German "will
-// not work well" (docs/voices-and-expression.md, "Languages", in
-// KittenML/KittenTTS at the revision kittenttssrv pins). The smaller KittenTTS
-// 2 nano, pico and mini models instead select a language with a language
-// argument; the pinned kittenml predates them and rejects their repositories,
-// so they have no voices here.
+// KittenML/kitten-tts-2 has no language argument: each voice carries its
+// language, and an English voice reading German "will not work well"
+// (docs/voices-and-expression.md, "Languages", in KittenML/KittenTTS at the
+// revision kittenttssrv pins).
+//
+// The KittenTTS 2 nano, pico and mini models select a language with a
+// language argument, and each language has its own voices. Mini also lists
+// its English voices under German, Spanish, Italian, Portuguese and Russian;
+// they are listed here only as English, so that each name speaks one
+// language. Mini's Japanese is omitted: it needs kittenml's "ja" extra, whose
+// pyopenjtalk and unidic-lite build from source with a C++ toolchain.
 func Voices(model string) ([]Voice, error) {
-	if model != "KittenML/kitten-tts-2" {
-		return nil, fmt.Errorf("KittenTTS model %q is not supported; use KittenML/kitten-tts-2", model)
+	m, err := lookup(model)
+	if err != nil {
+		return nil, err
 	}
-	return slices.Clone(kittenTTS2Voices), nil
+	return slices.Clone(m.voices), nil
 }
 
-// Revision is the Hugging Face commit of KittenML/kitten-tts-2 whose
-// voices/voices.json Voices lists. kittenttssrv loads the model at this commit,
-// so the listed voices and languages cannot drift with the repository's main.
-const Revision = "c93cb7c271baa51d9ae8204d5277988906f235a2"
+// Revision returns the Hugging Face commit of model whose config Voices
+// lists. kittenttssrv loads the model at this commit, so the listed voices and
+// languages cannot drift with the repository's main.
+func Revision(model string) (string, error) {
+	m, err := lookup(model)
+	if err != nil {
+		return "", err
+	}
+	return m.revision, nil
+}
 
-// kittenTTS2Voices lists voices/voices.json of KittenML/kitten-tts-2 at
-// Revision. Each non-English voice_id carries its ISO 639-1 code as a "fr_"
+// Models are the models Voices supports, sorted.
+var Models = slices.Sorted(maps.Keys(models))
+
+type modelInfo struct {
+	revision string
+	voices   []Voice
+}
+
+var models = map[string]modelInfo{
+	"KittenML/kitten-tts-2":      {"c93cb7c271baa51d9ae8204d5277988906f235a2", kittenTTS2Voices},
+	"KittenML/kitten-tts-2-mini": {"c01797caec3967b400da457656e011eb81f530a4", kittenTTS2MiniVoices},
+	"KittenML/kitten-tts-2-nano": {"54526b8d8e45333cd720d3a082c106aacf416064", kittenTTS2NanoVoices},
+	"KittenML/kitten-tts-2-pico": {"da8c9d029e16d9302f1827adb303d92316e25f73", kittenTTS2PicoVoices},
+}
+
+func lookup(model string) (modelInfo, error) {
+	m, ok := models[model]
+	if !ok {
+		return modelInfo{}, fmt.Errorf("KittenTTS model %q is not supported; use one of %q", model, Models)
+	}
+	return m, nil
+}
+
+// kittenTTS2Voices lists voices/voices.json of KittenML/kitten-tts-2 at its
+// revision. Each non-English voice_id carries its ISO 639-1 code as a "fr_"
 // prefix or a "_fr" suffix, and its name starts with the English language name.
 var kittenTTS2Voices = []Voice{
 	{Name: "AirportAnnouncer", Language: "en"},
@@ -160,4 +195,155 @@ var kittenTTS2Voices = []Voice{
 	{Name: "Walter", Language: "en"},
 	{Name: "WeatherPresenterCheerful", Language: "en"},
 	{Name: "Willow", Language: "en"},
+}
+
+// kittenTTS2NanoVoices lists the voices of config.json in
+// KittenML/kitten-tts-2-nano at its revision.
+var kittenTTS2NanoVoices = []Voice{
+	{Name: "Alessandro", Language: "it"},
+	{Name: "Alexei", Language: "ru"},
+	{Name: "Ananya", Language: "hi"},
+	{Name: "Anna", Language: "de"},
+	{Name: "Arjun", Language: "hi"},
+	{Name: "Caio", Language: "pt"},
+	{Name: "Danny", Language: "en"},
+	{Name: "Davide", Language: "it"},
+	{Name: "Edith", Language: "en"},
+	{Name: "Eleanor", Language: "en"},
+	{Name: "Elena", Language: "es"},
+	{Name: "Francesca", Language: "it"},
+	{Name: "Gabriel", Language: "fr"},
+	{Name: "Giorgio", Language: "it"},
+	{Name: "Grace", Language: "en"},
+	{Name: "Gustavo", Language: "pt"},
+	{Name: "Iris", Language: "en"},
+	{Name: "Juliana", Language: "pt"},
+	{Name: "Juliette", Language: "fr"},
+	{Name: "Larissa", Language: "pt"},
+	{Name: "Lukas", Language: "de"},
+	{Name: "Martha", Language: "en"},
+	{Name: "Mateo", Language: "es"},
+	{Name: "Max", Language: "en"},
+	{Name: "Mia", Language: "de"},
+	{Name: "Nicolas", Language: "fr"},
+	{Name: "Olga", Language: "ru"},
+	{Name: "Otis", Language: "en"},
+	{Name: "Pablo", Language: "es"},
+	{Name: "Paul", Language: "de"},
+	{Name: "Priya", Language: "hi"},
+	{Name: "Serena", Language: "en"},
+	{Name: "Sergei", Language: "ru"},
+	{Name: "Sofia", Language: "es"},
+	{Name: "Tatiana", Language: "ru"},
+	{Name: "Vikram", Language: "hi"},
+	{Name: "Vincent", Language: "en"},
+}
+
+// kittenTTS2PicoVoices lists the voices of config.json in
+// KittenML/kitten-tts-2-pico at its revision.
+var kittenTTS2PicoVoices = []Voice{
+	{Name: "Alessandro", Language: "it"},
+	{Name: "Alexei", Language: "ru"},
+	{Name: "Amelie", Language: "fr"},
+	{Name: "Anna", Language: "de"},
+	{Name: "Arjun", Language: "hi"},
+	{Name: "Baptiste", Language: "fr"},
+	{Name: "Caio", Language: "pt"},
+	{Name: "Davide", Language: "it"},
+	{Name: "Edith", Language: "en"},
+	{Name: "Eleanor", Language: "en"},
+	{Name: "Elena", Language: "es"},
+	{Name: "Francesca", Language: "it"},
+	{Name: "Frank", Language: "en"},
+	{Name: "Giorgio", Language: "it"},
+	{Name: "Gustavo", Language: "pt"},
+	{Name: "Juliana", Language: "pt"},
+	{Name: "Larissa", Language: "pt"},
+	{Name: "Lea", Language: "fr"},
+	{Name: "Lukas", Language: "de"},
+	{Name: "Mateo", Language: "es"},
+	{Name: "Mia", Language: "de"},
+	{Name: "Olga", Language: "ru"},
+	{Name: "Otis", Language: "en"},
+	{Name: "Pablo", Language: "es"},
+	{Name: "Paul", Language: "de"},
+	{Name: "Priya", Language: "hi"},
+	{Name: "Sergei", Language: "ru"},
+	{Name: "Sofia", Language: "es"},
+	{Name: "Tatiana", Language: "ru"},
+	{Name: "Theo", Language: "fr"},
+}
+
+// kittenTTS2MiniVoices lists the voices of config.json in
+// KittenML/kitten-tts-2-mini at its revision, without Japanese, and with its
+// English voices only in English.
+var kittenTTS2MiniVoices = []Voice{
+	{Name: "Aino", Language: "fi"},
+	{Name: "Ananya", Language: "hi"},
+	{Name: "Anastasia", Language: "ru"},
+	{Name: "Antoine", Language: "fr"},
+	{Name: "Arjun", Language: "hi"},
+	{Name: "Astrid", Language: "sv"},
+	{Name: "Baraka", Language: "sw"},
+	{Name: "Beatriz", Language: "pt"},
+	{Name: "Bram", Language: "nl"},
+	{Name: "Camila", Language: "pt"},
+	{Name: "Camille", Language: "fr"},
+	{Name: "Carmen", Language: "es"},
+	{Name: "Chiara", Language: "it"},
+	{Name: "Chloe", Language: "fr"},
+	{Name: "Daan", Language: "nl"},
+	{Name: "Danny", Language: "en"},
+	{Name: "Diana", Language: "en"},
+	{Name: "Diego", Language: "es"},
+	{Name: "Dmitri", Language: "ru"},
+	{Name: "Edith", Language: "en"},
+	{Name: "Eero", Language: "fi"},
+	{Name: "Eleanor", Language: "en"},
+	{Name: "Elif", Language: "tr"},
+	{Name: "Elsa", Language: "sv"},
+	{Name: "Etienne", Language: "fr"},
+	{Name: "Felix", Language: "de"},
+	{Name: "Fenna", Language: "nl"},
+	{Name: "Freja", Language: "da"},
+	{Name: "Giulia", Language: "it"},
+	{Name: "Grace", Language: "en"},
+	{Name: "Greta", Language: "de"},
+	{Name: "Helmi", Language: "fi"},
+	{Name: "Iris", Language: "en"},
+	{Name: "Ivan", Language: "ru"},
+	{Name: "Javier", Language: "es"},
+	{Name: "Jihoon", Language: "ko"},
+	{Name: "Jonas", Language: "de"},
+	{Name: "Joris", Language: "nl"},
+	{Name: "Juho", Language: "fi"},
+	{Name: "Julien", Language: "fr"},
+	{Name: "Juma", Language: "sw"},
+	{Name: "Lena", Language: "de"},
+	{Name: "Louis", Language: "fr"},
+	{Name: "Luca", Language: "it"},
+	{Name: "Lucia", Language: "es"},
+	{Name: "Mads", Language: "da"},
+	{Name: "Manon", Language: "fr"},
+	{Name: "Marco", Language: "it"},
+	{Name: "Martha", Language: "en"},
+	{Name: "Mathis", Language: "fr"},
+	{Name: "Max", Language: "en"},
+	{Name: "Minjun", Language: "ko"},
+	{Name: "Natasha", Language: "ru"},
+	{Name: "Neema", Language: "sw"},
+	{Name: "Oskar", Language: "sv"},
+	{Name: "Otis", Language: "en"},
+	{Name: "Priya", Language: "hi"},
+	{Name: "Rafael", Language: "pt"},
+	{Name: "Rasmus", Language: "da"},
+	{Name: "Sanne", Language: "nl"},
+	{Name: "Seoyeon", Language: "ko"},
+	{Name: "Serena", Language: "en"},
+	{Name: "Thiago", Language: "pt"},
+	{Name: "Vikram", Language: "hi"},
+	{Name: "Ville", Language: "fi"},
+	{Name: "Vincent", Language: "en"},
+	{Name: "Zawadi", Language: "sw"},
+	{Name: "Zeynep", Language: "tr"},
 }
