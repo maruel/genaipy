@@ -32,7 +32,8 @@ import (
 //
 // root is the slash-separated archive directory to install, empty for the
 // archive's top level. exe is slash-separated and relative to root. The
-// archive must match the SHA-256 published beside it as u+".sha256".
+// archive must match digest, a hexadecimal SHA-256; an empty digest reads the
+// one published beside the archive as u+".sha256".
 // Extraction stages beside dir and renames the complete tree into place, so an
 // interrupted install leaves no directory that looks installed.
 //
@@ -42,7 +43,7 @@ import (
 // a crashed installer leaves no stale lock. The lock file stays on disk:
 // removing it would let a waiter hold a lock on the unlinked file while a
 // newcomer locks a new one. ctx cancels the wait.
-func Install(ctx context.Context, client *http.Client, u, root, dir, exe string) (string, error) {
+func Install(ctx context.Context, client *http.Client, u, digest, root, dir, exe string) (string, error) {
 	name := path.Base(u)
 	exePath := filepath.Join(dir, filepath.FromSlash(exe))
 	// The marker holds the verified digest and is written last.
@@ -62,9 +63,11 @@ func Install(ctx context.Context, client *http.Client, u, root, dir, exe string)
 	if installed(marker, exePath) {
 		return exePath, nil
 	}
-	digest, err := publishedDigest(ctx, client, u+".sha256")
-	if err != nil {
-		return "", err
+	if digest == "" {
+		var err error
+		if digest, err = publishedDigest(ctx, client, u+".sha256"); err != nil {
+			return "", err
+		}
 	}
 	archive, err := os.CreateTemp(parent, ".download-*")
 	if err != nil {

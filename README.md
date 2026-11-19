@@ -83,6 +83,17 @@ possible loss of accuracy on words crossing window boundaries.
 default Whistle weights on first use; `model` is an optional local `.cact`
 weights path. Telemetry is disabled.
 
+`providers/vosk` streams 16 kHz or faster audio to a [Vosk](https://alphacephei.com/vosk/)
+server over the [vosk-server](https://github.com/alphacep/vosk-server)
+WebSocket protocol, yielding interim drafts and a phrase transcript at each
+detected pause. Each `vosk.Models` entry recognizes one language;
+`vosk.English` is the 1.8 GB US English server model, using about 7 GB of
+memory.
+`vosksrv.New(ctx, model)` downloads the model archive, verified against a
+pinned SHA-256, into the user's `genaipy/vosk` cache directory and runs the
+worker with the pinned `uv`, Python 3.12 and `vosk` package. The client also
+reaches a remote vosk-server, such as the `alphacep/kaldi-en` container.
+
 `providers/kittentts` streams speech from a KittenTTS worker: `Synthesize`
 yields owned mono S16LE PCM chunks at `kittentts.SampleRate`, 24 kHz, in the
 voice given to `kittentts.New`, Jasper by default. `kittenttssrv.New(ctx,

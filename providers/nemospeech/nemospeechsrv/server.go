@@ -176,7 +176,7 @@ func Download(ctx context.Context, cacheDir string, backend Backend) (string, er
 	if runtime.GOOS == "windows" {
 		exe += ".exe"
 	}
-	exe, err = release.Install(ctx, http.DefaultClient, u, stem, filepath.Join(cacheDir, stem), exe)
+	exe, err = release.Install(ctx, http.DefaultClient, u, "", stem, filepath.Join(cacheDir, stem), exe)
 	if err != nil {
 		return "", fmt.Errorf("NeMo-Speech.cpp %s: %w", Version, err)
 	}

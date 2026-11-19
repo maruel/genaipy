@@ -117,7 +117,7 @@ func TestInstall(t *testing.T) {
 			u, downloads := serve(t, "ns-1.tar.gz", archive, digestOf(archive))
 			cache := t.TempDir()
 			for range 2 {
-				exe, err := Install(t.Context(), http.DefaultClient, u, "ns-1", filepath.Join(cache, "ns-1"), "bin/tool")
+				exe, err := Install(t.Context(), http.DefaultClient, u, "", "ns-1", filepath.Join(cache, "ns-1"), "bin/tool")
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -149,7 +149,7 @@ func TestInstall(t *testing.T) {
 			var wg sync.WaitGroup
 			for i := range n {
 				wg.Go(func() {
-					exe, err := Install(t.Context(), http.DefaultClient, u, "ns-4", dir, "bin/tool")
+					exe, err := Install(t.Context(), http.DefaultClient, u, "", "ns-4", dir, "bin/tool")
 					if err != nil {
 						t.Error(err)
 					}
@@ -176,7 +176,7 @@ func TestInstall(t *testing.T) {
 			archive := zipArchive(t, entry{name: "tool", body: "exe"}, entry{name: "other", body: "x"})
 			u, _ := serve(t, "ns-2.zip", archive, digestOf(archive))
 			dir := filepath.Join(t.TempDir(), "ns-2")
-			exe, err := Install(t.Context(), http.DefaultClient, u, "", dir, "tool")
+			exe, err := Install(t.Context(), http.DefaultClient, u, "", "", dir, "tool")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -185,6 +185,18 @@ func TestInstall(t *testing.T) {
 			}
 			if b, err := os.ReadFile(filepath.Join(dir, "other")); err != nil || string(b) != "x" {
 				t.Errorf("other = %q, %v", b, err)
+			}
+		})
+		t.Run("pinned digest", func(t *testing.T) {
+			t.Parallel()
+			archive := zipArchive(t, entry{name: "tool", body: "exe"})
+			// A pinned digest never reads the published checksum.
+			u, requests := serve(t, "ns-5.zip", archive, "not-hex")
+			if _, err := Install(t.Context(), http.DefaultClient, u, digestOf(archive), "", filepath.Join(t.TempDir(), "ns-5"), "tool"); err != nil {
+				t.Fatal(err)
+			}
+			if n := requests.Load(); n != 1 {
+				t.Errorf("requests = %d, want 1", n)
 			}
 		})
 		t.Run("replaces an incomplete install", func(t *testing.T) {
@@ -198,7 +210,7 @@ func TestInstall(t *testing.T) {
 			}
 			archive := tarGz(t, entry{name: "ns-3/bin/tool", body: "new"})
 			u, _ := serve(t, "ns-3.tar.gz", archive, digestOf(archive))
-			exe, err := Install(t.Context(), http.DefaultClient, u, "ns-3", filepath.Join(cache, "ns-3"), "bin/tool")
+			exe, err := Install(t.Context(), http.DefaultClient, u, "", "ns-3", filepath.Join(cache, "ns-3"), "bin/tool")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -235,7 +247,7 @@ func TestInstall(t *testing.T) {
 				t.Parallel()
 				u, _ := serve(t, "ns.tar.gz", tc.archive, digestOf(tc.archive))
 				cache := t.TempDir()
-				if _, err := Install(t.Context(), http.DefaultClient, u, "ns", filepath.Join(cache, "ns"), "bin/tool"); err == nil {
+				if _, err := Install(t.Context(), http.DefaultClient, u, "", "ns", filepath.Join(cache, "ns"), "bin/tool"); err == nil {
 					t.Fatal("unsafe archive accepted")
 				}
 				if _, err := os.Stat(filepath.Join(cache, "ns")); !os.IsNotExist(err) {
@@ -248,13 +260,21 @@ func TestInstall(t *testing.T) {
 			archive := tarGz(t, entry{name: "ns/bin/tool", body: "tampered"})
 			u, _ := serve(t, "ns.tar.gz", archive, digestOf([]byte("expected")))
 			cache := t.TempDir()
-			if _, err := Install(t.Context(), http.DefaultClient, u, "ns", filepath.Join(cache, "ns"), "bin/tool"); err == nil || !strings.Contains(err.Error(), "SHA-256") {
+			if _, err := Install(t.Context(), http.DefaultClient, u, "", "ns", filepath.Join(cache, "ns"), "bin/tool"); err == nil || !strings.Contains(err.Error(), "SHA-256") {
 				t.Fatalf("error = %v", err)
 			}
 			// The lock file stays: removing it would let a waiter hold a lock
 			// on an unlinked file while a newcomer locks a new one.
 			if entries, _ := os.ReadDir(cache); len(entries) != 1 || entries[0].Name() != "ns.lock" {
 				t.Errorf("cache = %v, want only the lock", entries)
+			}
+		})
+		t.Run("pinned digest mismatch", func(t *testing.T) {
+			t.Parallel()
+			archive := tarGz(t, entry{name: "ns/bin/tool", body: "tampered"})
+			u, _ := serve(t, "ns.tar.gz", archive, digestOf(archive))
+			if _, err := Install(t.Context(), http.DefaultClient, u, digestOf([]byte("expected")), "ns", filepath.Join(t.TempDir(), "ns"), "bin/tool"); err == nil || !strings.Contains(err.Error(), "SHA-256") {
+				t.Fatalf("error = %v", err)
 			}
 		})
 		t.Run("canceled while another installer holds the lock", func(t *testing.T) {
@@ -268,7 +288,7 @@ func TestInstall(t *testing.T) {
 			t.Cleanup(func() { _ = held.Close() })
 			ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 			t.Cleanup(cancel)
-			if _, err := Install(ctx, http.DefaultClient, u, "ns", dir, "bin/tool"); !errors.Is(err, context.DeadlineExceeded) {
+			if _, err := Install(ctx, http.DefaultClient, u, "", "ns", dir, "bin/tool"); !errors.Is(err, context.DeadlineExceeded) {
 				t.Fatalf("error = %v", err)
 			}
 			if n := requests.Load(); n != 0 {
@@ -278,14 +298,14 @@ func TestInstall(t *testing.T) {
 		t.Run("malformed checksum", func(t *testing.T) {
 			t.Parallel()
 			u, _ := serve(t, "ns.tar.gz", nil, "not-hex")
-			if _, err := Install(t.Context(), http.DefaultClient, u, "ns", filepath.Join(t.TempDir(), "ns"), "bin/tool"); err == nil || !strings.Contains(err.Error(), "malformed") {
+			if _, err := Install(t.Context(), http.DefaultClient, u, "", "ns", filepath.Join(t.TempDir(), "ns"), "bin/tool"); err == nil || !strings.Contains(err.Error(), "malformed") {
 				t.Fatalf("error = %v", err)
 			}
 		})
 		t.Run("missing build", func(t *testing.T) {
 			t.Parallel()
 			u, _ := serve(t, "other.tar.gz", nil, "")
-			if _, err := Install(t.Context(), http.DefaultClient, strings.Replace(u, "other", "ns", 1), "ns", filepath.Join(t.TempDir(), "ns"), "bin/tool"); err == nil || !strings.Contains(err.Error(), "release has no ns.tar.gz") {
+			if _, err := Install(t.Context(), http.DefaultClient, strings.Replace(u, "other", "ns", 1), "", "ns", filepath.Join(t.TempDir(), "ns"), "bin/tool"); err == nil || !strings.Contains(err.Error(), "release has no ns.tar.gz") {
 				t.Fatalf("error = %v", err)
 			}
 		})

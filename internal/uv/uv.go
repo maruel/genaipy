@@ -33,7 +33,7 @@ func Install(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	exe, err = release.Install(ctx, http.DefaultClient, u, root, filepath.Join(cache, "genaipy", "uv", Version), exe)
+	exe, err = release.Install(ctx, http.DefaultClient, u, "", root, filepath.Join(cache, "genaipy", "uv", Version), exe)
 	if err != nil {
 		return "", fmt.Errorf("uv %s: %w", Version, err)
 	}
