@@ -6,8 +6,9 @@
 
 //go:build !windows
 
-package nemospeechsrv
+package worker
 
 import "os/exec"
 
-func hideConsole(*exec.Cmd) {}
+// HideConsole prevents console allocation on Windows; it does nothing here.
+func HideConsole(*exec.Cmd) {}

@@ -40,7 +40,8 @@ type Process struct {
 // process, and waits for the worker's readiness line: a JSON object whose
 // "url" member is http://127.0.0.1:<port> without a path. ready first
 // validates the worker's other members, such as a startup error. Later stdout
-// lines and stderr are logged under name.
+// lines and stderr are logged under name. On Windows, the process runs
+// without a console window.
 //
 // ctx owns the process lifetime. The worker must exit when its stdin reaches
 // EOF: a launcher such as uv may run it as a grandchild that killing the
@@ -48,6 +49,7 @@ type Process struct {
 func Start(ctx context.Context, name string, newCmd func(context.Context) *exec.Cmd, ready func([]byte) error) (*Process, string, error) {
 	procCtx, cancel := context.WithCancel(ctx)
 	cmd := newCmd(procCtx)
+	HideConsole(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		cancel()

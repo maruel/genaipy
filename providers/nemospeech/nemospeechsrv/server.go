@@ -38,6 +38,7 @@ import (
 	"github.com/maruel/genai"
 	"github.com/maruel/genai/base"
 	"github.com/maruel/genaipy/internal/release"
+	"github.com/maruel/genaipy/internal/worker"
 	"github.com/maruel/genaipy/providers/nemospeech"
 )
 
@@ -92,7 +93,7 @@ func New(ctx context.Context, exe string, model nemospeech.Model) (*Server, erro
 	client := &http.Client{Transport: &http.Transport{Proxy: nil}}
 	procCtx, cancel := context.WithCancel(ctx)
 	cmd := exec.CommandContext(procCtx, exe, "serve", "--asr-model", string(model), "--host", "127.0.0.1", "--port", port, "--no-ui") // #nosec G204 -- The executable comes from the verified release; arguments use no shell.
-	hideConsole(cmd)
+	worker.HideConsole(cmd)
 	cmd.Env = serverEnv()
 	logs := slog.NewLogLogger(slog.Default().Handler(), slog.LevelInfo).Writer()
 	cmd.Stdout, cmd.Stderr = logs, logs

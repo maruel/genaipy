@@ -4,16 +4,17 @@
 
 // Console handling for child processes on Windows.
 
-package nemospeechsrv
+package worker
 
 import (
 	"os/exec"
 	"syscall"
 )
 
-// hideConsole prevents console allocation; explicit stdout and stderr handles
-// still carry server logs.
-func hideConsole(cmd *exec.Cmd) {
+// HideConsole runs cmd in a console without a window. Console children, such
+// as the Python process uv launches, inherit it instead of opening their own;
+// explicit stdout and stderr handles still carry their logs.
+func HideConsole(cmd *exec.Cmd) {
 	const createNoWindow = 0x08000000
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
